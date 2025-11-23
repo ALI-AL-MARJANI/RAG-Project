@@ -1,0 +1,14 @@
+numpy
+pandas
+tqdm
+faiss-cpu
+sentence-transformers
+pypdf
+langchain
+langchain-community
+huggingface_hub
+python-dotenv
+fastapi
+uvicorn
+streamlit
+transformers
