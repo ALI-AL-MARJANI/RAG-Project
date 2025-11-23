@@ -1,4 +1,3 @@
-# RAG-Project
 
 # RAG for Technical Signal-Processing Documentation
 
