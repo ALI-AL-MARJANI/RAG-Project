@@ -1,53 +1,57 @@
 import os
 import json
-from pathlib import Path
-import requests
+import feedparser
+import urllib.request
 
-
-def download_arxiv_papers(arxiv_ids, output_dir="data/raw/arxiv"):
+def fetch_recent_arxiv_ids(category="cs.LG", max_results=5):
     """
-    Download arXiv papers (PDF) based on a list of arXiv IDs.
-    
-    Parameters
-    ----------
-    arxiv_ids : list[str]
-        List of arXiv identifiers, e.g. ["2402.06782", "2310.12345"]
-    output_dir : str
-        Directory where PDFs and metadata will be stored
+    Récupère les IDs récents d'arXiv dans une catégorie donnée.
+    Exemple catégories : cs.LG (Machine Learning), cs.CL (NLP), cs.AI...
     """
+    url = f"http://export.arxiv.org/api/query?search_query=cat:{category}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
+    feed = feedparser.parse(url)
 
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    ids = []
+    for entry in feed.entries:
+        paper_id = entry.id.split('/abs/')[-1]
+        ids.append(paper_id)
 
+    return ids
+
+
+def download_arxiv_papers(output_dir="data/raw/arxiv", category="cs.LG", max_results=5):
+    """
+    Télécharge automatiquement des PDFs récents et les stocke dans output_dir.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    print(f"Fetching latest papers from arXiv ({category})…")
+    paper_ids = fetch_recent_arxiv_ids(category, max_results)
+
+    pdf_paths = []
     metadata = []
 
-    for arxiv_id in arxiv_ids:
-        pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
-        pdf_path = output_dir / f"{arxiv_id}.pdf"
-
-        print(f"Downloading {arxiv_id}... ", end="")
+    for pid in paper_ids:
+        base_id = pid.replace("v1", "")
+        pdf_url = f"https://arxiv.org/pdf/{base_id}.pdf"
+        pdf_path = os.path.join(output_dir, f"{base_id}.pdf")
 
         try:
-            response = requests.get(pdf_url, timeout=20)
+            print(f"Downloading {pid} … ", end="")
+            urllib.request.urlretrieve(pdf_url, pdf_path)
+            print("OK")
 
-            if response.status_code == 200:
-                with open(pdf_path, "wb") as f:
-                    f.write(response.content)
-
-                print("OK")
-                metadata.append(
-                    {"arxiv_id": arxiv_id, "pdf_path": str(pdf_path), "url": pdf_url}
-                )
-            else:
-                print(f"FAILED (status {response.status_code})")
-
+            pdf_paths.append(pdf_path)
+            metadata.append({
+                "id": pid,
+                "pdf_path": pdf_path,
+                "url": f"https://arxiv.org/abs/{pid}",
+            })
         except Exception as e:
-            print(f"ERROR: {e}")
+            print(f"FAILED ({e})")
 
-    # Save metadata
-    meta_path = output_dir / "metadata.json"
-    with open(meta_path, "w") as f:
+    # save metadata
+    with open(os.path.join(output_dir, "metadata.json"), "w") as f:
         json.dump(metadata, f, indent=4)
 
-    print(f"\nDownloaded {len(metadata)} papers. Metadata saved in {meta_path}")
-    return metadata
+    return pdf_paths

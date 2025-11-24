@@ -1,1 +1,27 @@
-[]
+[
+    {
+        "id": "2511.17489v1",
+        "pdf_path": "data/raw/arxiv/2511.17489.pdf",
+        "url": "https://arxiv.org/abs/2511.17489v1"
+    },
+    {
+        "id": "2511.17475v1",
+        "pdf_path": "data/raw/arxiv/2511.17475.pdf",
+        "url": "https://arxiv.org/abs/2511.17475v1"
+    },
+    {
+        "id": "2511.17473v1",
+        "pdf_path": "data/raw/arxiv/2511.17473.pdf",
+        "url": "https://arxiv.org/abs/2511.17473v1"
+    },
+    {
+        "id": "2511.17467v1",
+        "pdf_path": "data/raw/arxiv/2511.17467.pdf",
+        "url": "https://arxiv.org/abs/2511.17467v1"
+    },
+    {
+        "id": "2511.17446v1",
+        "pdf_path": "data/raw/arxiv/2511.17446.pdf",
+        "url": "https://arxiv.org/abs/2511.17446v1"
+    }
+]
