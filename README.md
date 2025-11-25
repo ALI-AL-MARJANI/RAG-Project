@@ -1,7 +1,7 @@
 
 # RAG for Technical Signal-Processing Documentation
 
-This project implements a secure, on-premise conversational AI system using RAG to query technical documentation (e.g., signal-processing reports, specs, internal PDFs) while keeping all data fully local.
+This project implements a secure, on-premise conversational AI system using RAG to query technical documentation (signal-processing reports, specs, internal PDFs) while keeping all data fully local.
 
 The goal is to reproduce a realistic production-style RAG pipeline:
 - Local ingestion and indexing of sensitive documents
@@ -15,7 +15,7 @@ The goal is to reproduce a realistic production-style RAG pipeline:
 ## Main Features
 
 - **Fully on-premise RAG**  
-  No external API calls. All embedding, retrieval and generation run locally.
+  All embedding, retrieval and generation run locally.
 
 - **Document ingestion pipeline**  
   Parsing and cleaning of PDFs / text reports, with metadata extraction and simple structure analysis.
@@ -37,7 +37,7 @@ The goal is to reproduce a realistic production-style RAG pipeline:
 
 ---
 
-## High-Level Architecture
+## Architecture
 
 The RAG pipeline follows these main steps:
 
@@ -51,7 +51,7 @@ The RAG pipeline follows these main steps:
 
 3. **Embeddings & Indexing**
    - Compute dense embeddings for chunks with BGE models in `src/embedding/`.
-   - Build a FAISS index and store metadata (document id, section, page) in `data/index/`.
+   - Build a FAISS index and store metadata in `data/index/`.
 
 4. **Retrieval**
    - For an incoming query, compute its embedding.
@@ -61,7 +61,7 @@ The RAG pipeline follows these main steps:
 5. **Generation (RAG)**
    - Format a prompt combining the user query and retrieved context.
    - Call a local LLM (Mistral / Llama).
-   - Apply simple rules to avoid hallucinations (“say I don’t know” if context is insufficient).
+   - Apply simple rules to avoid hallucinations.
 
 7. **Evaluation**
    - Offline evaluation of retrieval and answer quality in `src/evaluation/` and `notebooks/`
