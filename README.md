@@ -21,7 +21,7 @@ The goal is to reproduce a realistic production-style RAG pipeline:
   Parsing and cleaning of PDFs / text reports, with metadata extraction and simple structure analysis.
 
 - **Adaptive chunking strategy**  
-  Hybrid approach mixing fixed-size chunks with semantic-aware merging (short paragraphs are merged, long sections are split), to improve retrieval quality.
+  Hybrid approach mixing fixed-size chunks with semantic-aware merging, to improve retrieval quality.
 
 - **Dense retrieval with BGE embeddings**  
   Uses BAAI BGE models for both document and query embeddings, with cosine-similarity search.
@@ -30,10 +30,10 @@ The goal is to reproduce a realistic production-style RAG pipeline:
   Efficient local similarity search with FAISS, persistent index on disk, and separation of vectors and metadata.
 
 - **Local LLM integration**  
-  Interface for running models like Mistral 7B / Llama 3 via local inference (e.g. `llama.cpp` / `llama-cpp-python`), with prompt templates adapted to RAG.
+  Interface for running models like Mistral 7B / Llama 3 via local inference, with prompt templates adapted to RAG.
 
 - **Evaluation tools**  
-  Simple scripts and notebooks to benchmark retrieval quality (Recall@k, MRR) and latency for different retriever–generator combinations.
+  Simple scripts and notebooks to benchmark retrieval quality and latency for different retriever–generator combinations.
 
 ---
 
@@ -46,7 +46,7 @@ The RAG pipeline follows these main steps:
    - Extract text and basic structure (pages, sections) in `src/ingestion/`.
 
 2. **Preprocessing & Chunking**
-   - Clean text (remove headers/footers, artifacts).
+   - Clean text.
    - Split into chunks using an adaptive strategy (size in tokens, overlaps, merging of short segments) in `src/chunking/`.
 
 3. **Embeddings & Indexing**
@@ -60,51 +60,11 @@ The RAG pipeline follows these main steps:
 
 5. **Generation (RAG)**
    - Format a prompt combining the user query and retrieved context.
-   - Call a local LLM (Mistral / Llama) via `src/llm/`.
+   - Call a local LLM (Mistral / Llama).
    - Apply simple rules to avoid hallucinations (“say I don’t know” if context is insufficient).
 
-6. **Serving**
-   - Expose a minimal API (FastAPI) in `src/api/`.
-   - Optionally a simple web UI (Streamlit / Gradio) in `src/ui/`.
-
 7. **Evaluation**
-   - Offline evaluation of retrieval and answer quality in `src/evaluation/` and `notebooks/`.
+   - Offline evaluation of retrieval and answer quality in `src/evaluation/` and `notebooks/`
 
 ---
 
-## Repository Structure
-
-Planned directory layout:
-
-```bash
-secure-rag-signal-docs/
-│
-├── src/
-│   ├── ingestion/        # Loading, parsing, cleaning documents
-│   ├── chunking/         # Adaptive chunking logic
-│   ├── embedding/        # BGE embedder and helpers
-│   ├── retrieval/        # FAISS index + retrieval pipeline
-│   ├── llm/              # Local LLM wrapper and generation logic
-│   ├── api/              # FastAPI endpoints for querying the system
-│   ├── ui/               # Optional Streamlit/Gradio app
-│   └── evaluation/       # Evaluation utilities (metrics, experiments)
-│
-├── data/
-│   ├── raw/              # Source documents (not tracked in git)
-│   ├── processed/        # Cleaned & chunked versions
-│   └── index/            # FAISS index + metadata
-│
-├── notebooks/
-│   ├── 01_ingestion_exploration.ipynb
-│   ├── 02_embedding_and_indexing.ipynb
-│   ├── 03_retrieval_evaluation.ipynb
-│   └── 04_end_to_end_demo.ipynb
-│
-├── tests/
-│   ├── test_chunking.py
-│   ├── test_retrieval.py
-│   └── test_llm_integration.py
-│
-├── app.py                # Entry point for running the API / demo
-├── requirements.txt      # Python dependencies
-└── README.md
