@@ -1,69 +1,54 @@
-# RAG for Technical Signal-Processing Documentation
+# Local RAG Pipeline for Technical Documentation
 
-This project implements a secure, on-premise conversational AI system using RAG to query technical documentation (signal-processing reports, specs, internal PDFs) while keeping all data fully local.
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python)
+![Ollama](https://img.shields.io/badge/Ollama-Local%20Inference-orange?style=for-the-badge)
+![FAISS](https://img.shields.io/badge/FAISS-Vector%20Search-green?style=for-the-badge)
+![License](https://img.shields.io/badge/License-MIT-lightgrey?style=for-the-badge)
 
-The goal is to reproduce a realistic production-style RAG pipeline:
-- Local ingestion and indexing of sensitive documents
-- BGE-based embeddings and adaptive chunking
-- FAISS vector search for low-latency retrieval
-- Local LLMs (Mistral / Llama) for answer generation
-- Basic evaluation of retrieval quality and latency
+> **A production-inspired, fully on-premise Retrieval-Augmented Generation (RAG) system.**
+> Designed to query sensitive technical specs and research papers without data ever leaving your local machine.
 
 ---
 
-## Main Features
+## Overview
 
-- **Fully on-premise RAG**  
-  All embedding, retrieval and generation run locally.
+This project implements a secure, modular RAG pipeline capable of ingesting complex PDF documentation (research papers, technical specs), indexing them efficiently, and generating grounded answers using local LLMs (Mistral / Llama 3).
 
-- **Document ingestion pipeline**  
-  Parsing and cleaning of PDFs / text reports, with metadata extraction and simple structure analysis.
-
-- **Adaptive chunking strategy**  
-  Hybrid approach mixing fixed-size chunks with semantic-aware merging, to improve retrieval quality.
-
-- **Dense retrieval with BGE embeddings**  
-  Uses BAAI BGE models for both document and query embeddings, with cosine-similarity search.
-
-- **FAISS-based vector index**  
-  Efficient local similarity search with FAISS, persistent index on disk, and separation of vectors and metadata.
-
-- **Local LLM integration**  
-  Interface for running models like Mistral 7B / Llama 3 via local inference, with prompt templates adapted to RAG.
-
-- **Evaluation tools**  
-  Simple scripts and notebooks to benchmark retrieval quality and latency for different retriever–generator combinations.
+### Key Goals
+* **Privacy-First:** Zero data leakage. All embeddings and inference run locally.
+* **Production-Grade Architecture:** Modular design separating ingestion, indexing, and generation.
+* **Scientific Precision:** Optimized for dense technical content (e.g., Signal Processing, ML Research).
+* **Measurable Quality:** Includes an "LLM-as-a-Judge" evaluation pipeline to benchmark performance.
 
 ---
 
 ## Architecture
 
-The RAG pipeline follows these main steps:
+The pipeline follows a strict modular flow:
 
-1. **Ingestion**
-   - Load raw documents from `data/raw/` (PDF, text, etc.).
-   - Extract text and basic structure (pages, sections) in `src/ingestion/`.
-
-2. **Preprocessing & Chunking**
-   - Clean text.
-   - Split into chunks using an adaptive strategy (size in tokens, overlaps, merging of short segments) in `src/chunking/`.
-
-3. **Embeddings & Indexing**
-   - Compute dense embeddings for chunks with BGE models in `src/embedding/`.
-   - Build a FAISS index and store metadata in `data/index/`.
-
-4. **Retrieval**
-   - For an incoming query, compute its embedding.
-   - Retrieve top-k chunks via FAISS, optionally apply a re-ranking step.
-   - Implemented in `src/retrieval/`.
-
-5. **Generation (RAG)**
-   - Format a prompt combining the user query and retrieved context.
-   - Call a local LLM (Mistral / Llama).
-   - Apply simple rules to avoid hallucinations.
-
-7. **Evaluation**
-   - Offline evaluation of retrieval and answer quality in `src/evaluation/` and `notebooks/`
+1.  **Ingestion:** Automated fetching of papers via `arXiv API` (or local PDFs).
+2.  **Processing:** Layout-aware parsing using `pdfminer.six`.
+3.  **Chunking:** Adaptive sliding-window strategy (800 tokens + 100 overlap) to preserve semantic context.
+4.  **Embedding:** Dense vector generation using **BAAI/bge-small-en-v1.5**.
+5.  **Vector Store:** High-performance similarity search with **FAISS**.
+6.  **Generation:** Context-aware inference using **Ollama** (Mistral 7B).
 
 ---
 
+## Quick Start
+
+### 1. Prerequisites
+You need **Python 3.9+** and **[Ollama](https://ollama.com/)** installed.
+
+```bash
+# Clone the repository
+git clone [https://github.com/ALI-AL-MARJANI/RAG-Project.git](https://github.com/ALI-AL-MARJANI/RAG-Project.git)
+cd RAG-Project
+
+# Install Python dependencies
+pip install -r requirements.txt
+# (Or manually: pip install requests pdfminer.six sentence-transformers faiss-cpu feedparser numpy)
+
+# Pull the LLM (Run this in a separate terminal)
+ollama pull mistral
+ollama run mistral
