@@ -1,4 +1,3 @@
-
 # RAG for Technical Signal-Processing Documentation
 
 This project implements a secure, on-premise conversational AI system using RAG to query technical documentation (signal-processing reports, specs, internal PDFs) while keeping all data fully local.
