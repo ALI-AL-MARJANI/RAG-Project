@@ -8,8 +8,6 @@
 
 
 
-
-
 ---
 
 ## Overview
@@ -43,7 +41,3 @@ The pipeline follows a strict modular flow:
 - Implement re-ranking (Cross-Encoders) for higher precision.
 
 - Support for Tables and Figures extraction.
-
-# Pull the LLM (Run this in a separate terminal)
-ollama pull mistral
-ollama run mistral
