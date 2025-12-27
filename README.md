@@ -1,7 +1,7 @@
 # Local RAG Pipeline for Technical Documentation
 
 <div align="center">
-  <img src="assets/rag_architecture_diagram.png" alt="RAG Architecture Schema" width="100%" style="border-radius: 10px; border: 1px solid #e1e4e8;">
+  <img src="assets/architecture_diagram.png" alt="RAG Architecture Schema" width="100%" style="border-radius: 10px; border: 1px solid #e1e4e8;">
 </div>
 
 <br>
