@@ -1,12 +1,14 @@
 # Local RAG Pipeline for Technical Documentation
 
-![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python)
-![Ollama](https://img.shields.io/badge/Ollama-Local%20Inference-orange?style=for-the-badge)
-![FAISS](https://img.shields.io/badge/FAISS-Vector%20Search-green?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-lightgrey?style=for-the-badge)
+<div align="center">
+  <img src="assets/rag_architecture_diagram.png" alt="RAG Architecture Schema" width="100%" style="border-radius: 10px; border: 1px solid #e1e4e8;">
+</div>
 
-> **A production-inspired, fully on-premise Retrieval-Augmented Generation (RAG) system.**
-> Designed to query sensitive technical specs and research papers without data ever leaving your local machine.
+<br>
+
+
+
+
 
 ---
 
@@ -35,19 +37,12 @@ The pipeline follows a strict modular flow:
 
 ---
 
-## Quick Start
+### Future Improvements
+- Add Hybrid Search (Keyword + Vector).
 
-### 1. Prerequisites
-You need **Python 3.9+** and **[Ollama](https://ollama.com/)** installed.
+- Implement re-ranking (Cross-Encoders) for higher precision.
 
-```bash
-# Clone the repository
-git clone [https://github.com/ALI-AL-MARJANI/RAG-Project.git](https://github.com/ALI-AL-MARJANI/RAG-Project.git)
-cd RAG-Project
-
-# Install Python dependencies
-pip install -r requirements.txt
-# (Or manually: pip install requests pdfminer.six sentence-transformers faiss-cpu feedparser numpy)
+- Support for Tables and Figures extraction.
 
 # Pull the LLM (Run this in a separate terminal)
 ollama pull mistral
