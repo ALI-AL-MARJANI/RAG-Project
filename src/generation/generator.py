@@ -1,57 +1,43 @@
-from huggingface_hub import InferenceClient
-import os
+import requests
 
-class RAGGenerator:
+class LocalGenerator:
     """
-    LLM generator for RAG pipeline using HuggingFace Inference API
-    Perfect for lightweight local development.
+    AI assistant that generates responses using a locally hosted Ollama model
     """
-
-    def __init__(self, model_name="mistralai/Mistral-7B-Instruct-v0.3", api_key=None):
+    def __init__(self, model_name="mistral", api_url="http://localhost:11434/api/generate"):
         self.model_name = model_name
-        self.api_key = api_key or os.getenv("HF_API_KEY")
+        self.api_url = api_url
 
-        if self.api_key is None:
-            raise ValueError("Missing HF_API_KEY environment variable.")
-
-        self.client = InferenceClient(
-            model=model_name,
-            token=self.api_key
-        )
-
-    def format_prompt(self, query: str, retrieved_docs: list):
+    def generate(self, query: str, retrieved_docs: list) -> str:
         """
-        Build the context + question prompt for the LLM.
+        Génère une réponse basée sur la requête et les documents récupérés.
         """
+        # Construction du contexte (extraction du texte des métadonnées)
+        # Note: on suppose que 'retrieved_docs' contient une clé 'text' dans metadata
+        context_text = "\n\n".join([doc["metadata"].get("text", "") for doc in retrieved_docs])
 
-        context_text = "\n\n".join([doc["metadata"]["text"] for doc in retrieved_docs])
+        prompt = f"""You are a helpful AI assistant for technical documentation.
+Use the following pieces of retrieved context to answer the user's question.
+If the answer is not in the context, say that you don't know.
 
-        prompt = f"""
-You are a knowledgeable assistant. 
-Use ONLY the following context to answer the question. 
-If the answer is not found, say you don't know.
-
-### Context:
+CONTEXT:
 {context_text}
 
-### Question:
+USER QUESTION:
 {query}
 
-### Answer:
+ANSWER:
 """
-        return prompt
+        
+        payload = {
+            "model": self.model_name,
+            "prompt": prompt,
+            "stream": False
+        }
 
-    def generate(self, query: str, retrieved_docs: list, max_tokens=512):
-        """
-        Generate final answer using the RAG pipeline.
-        """
-
-        prompt = self.format_prompt(query, retrieved_docs)
-
-        response = self.client.text_generation(
-            prompt,
-            max_new_tokens=max_tokens,
-            temperature=0.2,
-        )
-
-        return response
+        try:
+            response = requests.post(self.api_url, json=payload)
+            response.raise_for_status()
+            return response.json().get("response", "No response.")
+        except Exception as e:
+            return f"Error communicating with Ollama: {e}"

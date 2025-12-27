@@ -64,6 +64,7 @@ def build_embeddings_from_chunks(
                     "doc_id": doc_id,
                     "chunk_id": idx,
                     "source_file": path,
+                    "text": chunk,
                 }
             )
 
