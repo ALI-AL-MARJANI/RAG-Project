@@ -15,7 +15,7 @@ def main():
     
     DATA_DIR = "data"
     ARXIV_CAT = "cs.LG"
-    MAX_PAPERS = 2  
+    MAX_PAPERS = 10  
     MODEL_NAME = "mistral" 
 
 
@@ -64,7 +64,7 @@ def main():
 
     # 6. INTERACTIVE LOOP
     while True:
-        query = input("\nPose ta question (ou 'q' pour quitter) : ")
+        query = input("\n Enter your question (or 'q' to quit): ")
         if query.lower() in ['q', 'quit', 'exit']:
             break
         

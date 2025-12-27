@@ -68,7 +68,7 @@ def build_embeddings_from_chunks(
                 }
             )
 
-    print(f"Nombre total de chunks à encoder : {len(all_texts)}")
+    print(f" Embedding {len(all_texts)} chunks…")
 
     embeddings = embedder.embed_texts(all_texts, batch_size=batch_size)
 
@@ -79,8 +79,8 @@ def build_embeddings_from_chunks(
     with open(meta_path, "w") as f:
         json.dump(all_meta, f, indent=2)
 
-    print(f"Embeddings sauvegardés dans : {emb_path}")
-    print(f"Métadonnées sauvegardées dans : {meta_path}")
-    print(f"Shape des embeddings : {embeddings.shape}")
+    print(f"Embeddings saved to: {emb_path}")
+    print(f"Metadata saved to: {meta_path}")
+    print(f"Shape of embeddings: {embeddings.shape}")
 
     return emb_path, meta_path

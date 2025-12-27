@@ -10,7 +10,7 @@ class LocalGenerator:
 
     def generate(self, query: str, retrieved_docs: list) -> str:
         """
-        Génère une réponse basée sur la requête et les documents récupérés.
+        Generate a response based on the query and retrieved documents
         """
         # Construction du contexte (extraction du texte des métadonnées)
         # Note: on suppose que 'retrieved_docs' contient une clé 'text' dans metadata
