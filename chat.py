@@ -33,7 +33,7 @@ def start_chat():
         answer = generator.generate(query, retrieved_docs)
         
         print(answer)
-        print("----------------")s
+        print("----------------")
         sources = [d['metadata'].get('source_file', 'Inconnu') for d in retrieved_docs]
         print(f"Sources : {sources}")
 
