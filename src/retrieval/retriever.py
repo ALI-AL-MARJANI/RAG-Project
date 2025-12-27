@@ -9,7 +9,7 @@ class RAGRetriever:
 
     def retrieve(self, query: str, k: int = 5):
         """
-        Encode la requête, interroge le vector store FAISS et retourne les meilleurs chunks.
+        Retrieve top-k relevant documents for the given query.
         """
         q_emb = self.embedder.embed_texts([query])
         results = self.vectorstore.search(q_emb, k=k)

@@ -5,8 +5,8 @@ import urllib.request
 
 def fetch_recent_arxiv_ids(category="cs.LG", max_results=5):
     """
-    Récupère les IDs récents d'arXiv dans une catégorie donnée.
-    Exemple catégories : cs.LG (Machine Learning), cs.CL (NLP), cs.AI...
+    Fetches the most recent arXiv paper IDs for a given category
+    
     """
     url = f"http://export.arxiv.org/api/query?search_query=cat:{category}&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
     feed = feedparser.parse(url)
@@ -21,7 +21,7 @@ def fetch_recent_arxiv_ids(category="cs.LG", max_results=5):
 
 def download_arxiv_papers(output_dir="data/raw/arxiv", category="cs.LG", max_results=5):
     """
-    Télécharge automatiquement des PDFs récents et les stocke dans output_dir.
+    Downloads recent arXiv papers in the specified category and saves them to output_dir
     """
     os.makedirs(output_dir, exist_ok=True)
 
