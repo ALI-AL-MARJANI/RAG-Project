@@ -1062,14 +1062,14 @@ I. Guyon, and R. Garnett (eds.), Advances in neural
 
 volume 29. Curran Associates,
 
+2016.
+
 Inc.,
 
 Ilya Sutskever, and Max
 In D. Lee,
 in-
 URL
-
-2016.
 
 Yaniv Leviathan, Matan Kalman, and Yossi Matias. Fast inference from transformers via speculative
 In Proceedings of the 40th international conference on machine learning, volume
@@ -1263,10 +1263,10 @@ j ∀ j ≤ k(cid:9) .
 
 2, . . . , tS
 
+(cid:12) tS
+
 #correct = max (cid:8)k (cid:12)
 #accepted = min{#correct + 1, N }.
-
-(cid:12) tS
 
 (16)
 

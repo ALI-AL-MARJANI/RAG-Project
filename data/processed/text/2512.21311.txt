@@ -409,9 +409,9 @@ cal surface features (i.e., Bi, Fi) are transformed into this
 intrinsic coordinate system, and we denote their local-frame
 representations with a hat symbol (i.e., ˆBi, ˆFi).
 
-i ), t2(pc
-
 i ), t1(pc
+
+i ), t2(pc
 
 i , n(pc
 
