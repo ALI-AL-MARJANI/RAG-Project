@@ -1,0 +1,11055 @@
+5
+2
+0
+2
+
+c
+e
+D
+4
+2
+
+]
+
+G
+L
+.
+s
+c
+[
+
+1
+v
+5
+1
+3
+1
+2
+.
+2
+1
+5
+2
+:
+v
+i
+X
+r
+a
+
+DOES THE DATA PROCESSING INEQUALITY REFLECT
+PRACTICE? ON THE UTILITY OF LOW-LEVEL TASKS
+
+Roy Turgeman
+Faculty of Engineering
+Bar-Ilan University
+Ramat Gan, Israel
+
+Tom Tirer
+Faculty of Engineering
+Bar-Ilan University
+Ramat Gan, Israel
+
+ABSTRACT
+
+The data processing inequality is an information-theoretic principle stating that the
+information content of a signal cannot be increased by processing the observations.
+In particular, it suggests that there is no benefit in enhancing the signal or encoding
+it before addressing a classification problem. This assertion can be proven to be
+true for the case of the optimal Bayes classifier. However, in practice, it is common
+to perform “low-level” tasks before “high-level” downstream tasks despite the
+overwhelming capabilities of modern deep neural networks. In this paper, we aim to
+understand when and why low-level processing can be beneficial for classification.
+We present a comprehensive theoretical study of a binary classification setup, where
+we consider a classifier that is tightly connected to the optimal Bayes classifier and
+converges to it as the number of training samples increases. We prove that for any
+finite number of training samples, there exists a pre-classification processing that
+improves the classification accuracy. We also explore the effect of class separation,
+training set size, and class balance on the relative gain from this procedure. We
+support our theory with an empirical investigation of the theoretical setup. Finally,
+we conduct an empirical study where we investigate the effect of denoising and
+encoding on the performance of practical deep classifiers on benchmark datasets.
+Specifically, we vary the size and class distribution of the training set, and the noise
+level, and demonstrate trends that are consistent with our theoretical results.
+
+1
+
+INTRODUCTION
+
+Deep neural networks (DNNs) have demonstrated remarkable performance across an extensive range
+of tasks, spanning from image and speech recognition to natural language processing and scientific
+discovery. When the end goal is to address “high-level” tasks, e.g., classification and detection,
+a natural approach is to train a DNN to directly solve the task using the raw data/observations as
+input (Yim & Sohn, 2017; Hendrycks & Dietterich, 2019; Singh et al., 2019). Yet, it is a common
+practice to begin with addressing a “low-level” task in order to improve the quality of the input for
+the high-level task. Such low-level tasks include signal/image restorations (Tirer & Giryes, 2018;
+2020; Zhang et al., 2021) as considered in (Liu et al., 2018; Dai et al., 2016; Li et al., 2023; Son et al.,
+2020; Haris et al., 2021; Pei et al., 2018), or encoding to a learned embedding space (Lee et al., 2022;
+Zhou & Paffenroth, 2017; Wu et al., 2023).
+
+This common pipeline, however, stands in contrast to the data processing inequality, a foundational
+concept in information theory (Cover, 1999), which states that the information content of a signal
+cannot be increased by processing the observations. Concretely, consider the Markov chain of
+three random variables: y → x → z, which denotes that z is independent of y given x, i.e.,
+pz|x,y(z|x, y) = pz|x(z|x) in terms of probability distributions. This implies that px,y,z(x, y, z) =
+py(y)px|y(x|y)pz|x(z|x) = px(x)py|x(y|x)pz|x(z|x). The data processing inequality reads as
+
+I(x, y) ≥ I(z, y)
+
+(1)
+
+1
+
+ 
+ 
+ 
+ 
+ 
+ 
+where I(x, y) is the mutual information of the random variables x and y.1 In particular, if y is the
+class of a data sample x, this implies that there is no “benefit” in low-level processing of the sample
+(e.g., obtaining z by denoising x) before directly considering the classification problem.
+
+Focusing on classification and referring to better (top-1) accuracy as “benefit”, the previous assertion
+can be proven to be true for the case of the optimal Bayes classifier (more details in Section 2).
+Clearly, we expect performance gaps between practical classifiers and the optimal Bayes classifier.
+However, modern DNN-based classifiers reach outstanding classification performance, sometimes
+even exceeding human capabilities. This raises the question: What can we say about the margin
+between this implication of the data processing inequality and practical classifiers? To the best of our
+knowledge, no prior work has attempted to theoretically and systematically investigate this question.
+
+In this paper, we aim to understand when and why low-level processing can be beneficial for
+classification, even when the classifier is “strong” (e.g., converges to the optimal Bayes classifier
+when the number of training samples grows). Our main contributions include:
+
+• We present a theoretical study of a binary classification setup, where we consider a classifier that
+is tightly connected to the optimal Bayes classifier (and converges to it). In the high-dimensional
+setting, we prove that for any finite number of training samples, there exist a pre-classification
+processing (specifically, a dimensionality reduction procedure) that improves the classification
+accuracy.
+
+• We establish theoretical results on the effect of various factors, such as the number of training
+samples, the level of class separation and training set imbalance, on the relative gain from the data
+processing procedure that we construct. For example, we show that, non-intuitively, the maximal
+relative gain increases when the class separation improves.
+
+• We present an empirical investigation of the theoretical model that corroborates our theory and
+
+sheds more light on the gains from low-level processing.
+
+• We complement our theoretical work with an empirical study. We investigate the effect of image
+denoising and self-supervised encoding on the performance of practical deep classifiers on bench-
+mark datasets, where we vary the size of the training set, the class distribution in the training set,
+and the noise level in the samples. We demonstrate trends that are consistent with our theoretical
+results (e.g., the one on the maximal gain), highlighting the usefulness of the theoretical setup.
+
+2 BACKGROUND AND RELATED WORK
+
+Consider the classification task, where the data (x, y) is distributed on X × [C], with [C] :=
+{1, . . . , C} and distribution denoted by px,y. For the binary 0 − 1 criterion, i.e., ℓ(ˆy, y) = I(ˆy ̸= y),
+the expected risk is equivalent to the error probability E[ℓ(ˆy(x), y)] = P(ˆy(x) ̸= y). It is well-known
+that this objective is minimized by the (optimal) Bayes classifier: copt(x) = argmaxy∈[C] py|x(y|x),
+where py|x is the true conditional probability of y given x (Bishop, 2006; Fukunaga, 2013). In
+practice, of course, the distributions are unknown and a classifier must be learned from data samples.
+
+Consider a data processing operation A : X → Z. This can be denoising, super-resolution, encoding,
+etc. Let z = A(x). Notice that y → x → z is a Markov chain because z is a function of x and
+thus pz|x,y(z|x, y) = pz|x(z|x). Therefore, the data processing inequality in Eq. 1 holds. The
+optimal Bayes classifier that operates on a processed sample z = A(x) is given by ˜copt(z) =
+argmaxy∈[C] py|z(y|z), where py|z is the true conditional probability of y given z.
+
+Focusing on the case of binary classification (C = 2), the following result shows that, similarly to the
+fact that no A can increase information, there is also no hope in improving the accuracy of optimal
+Bayes classifiers via data processing.
+
+Theorem 1. Let y → x → z be a Markov chain where y ∈ {1, 2} denotes the sample class. We have
+
+P(copt(x) ̸= y) ≤ P(˜copt(z) ̸= y),
+
+(2)
+
+where copt and ˜copt denote optimal Bayes classifiers.
+
+1The mutual information is defined as I(x, y) =
+
+px,y(x, y) log
+
+(cid:18) px,y(x, y)
+px(x)py(y)
+
+(cid:19)
+
+dxdy.
+
+(cid:90) (cid:90)
+
+2
+
+A similar statement and proof can be found in an arXiv version of (Liu et al., 2019). For completeness,
+we present a clearer proof in Appendix A. Note that (Liu et al., 2019) studies a potential tradeoff
+between the error of a low-level restoration task and the accuracy of a fixed classifier, where only the
+restoration model is trained using the training data. In contrast, our work focuses on the high-level end
+goal—the classification performance—and allows training the classifier after the low-level processing,
+as is done in practice. Therefore, (Liu et al., 2019) does not provide any reason why in practice it is
+common to address a low-level task before high-level ones, which is the central question of our paper.
+
+Our work is motivated by the contrast between common practice and the information-theoretic concept
+of the data processing inequality, as well as Theorem 1. There exist works that use information-
+theoretic concepts or compute approximate metrics to analyze DNNs, e.g., (Tishby & Zaslavsky,
+2015; Shwartz-Ziv & Tishby, 2017; Saxe et al., 2019; Gabri´e et al., 2018; Jeon & Van Roy, 2022).
+Interestingly, since a DNN processes data gradually, layer by layer, the features across the layers form
+a Markov chain, and thus the data processing inequality applies. Yet, avoiding the loss of information
+relevant to the task being learned can be attributed to penalizing failures in predicting the target labels
+during training, while discarding task-irrelevant information (akin to compression) may be explained
+by the information bottleneck principle (Tishby & Zaslavsky, 2015; Shwartz-Ziv & Tishby, 2017;
+Saxe et al., 2019). The contrast between representation learning and the data processing inequality
+has also motivated theoretical works (Xu et al., 2020; Goldfeld & Greenewald, 2021) to study variants
+of the mutual information, incorporating transformations of the signal or line projections. None of the
+aforementioned works consider a sequence of tasks or explain when and why low-level processing
+can be beneficial to practical classifiers. Moreover, here we directly analyze the classifier’s probability
+of error, which is more interpretable than the information-theoretic objectives studied before.
+
+Finally, we emphasize that in the case of pre-trained classifier under distribution shift, data processing
+that ‘reduces the gap’ between the test data distribution and the training data distribution is trivially
+expected to improve the classifier performance. However, we focus in this paper on the non-intuitive
+case where no distribution shift occurs, and the classifier is strong, in the sense that it converges to
+the optimal Bayes classifier as the training set increases (with good statistical properties).
+
+3 THEORY
+
+In this section, we present our theoretical contributions. First, we describe the problem setup, the
+data distribution, the classifier under study, and a data processing operation. Next, we present our
+theoretical results demonstrating the benefits of this data processing. Finally, we validate our results
+through experiments and provide additional insights into the factors that affect the performance gain.
+
+3.1 PROBLEM SETUP: DATA MODEL, CLASSIFIER, AND DATA PROCESSING
+
+Data model. Similar to a vast body of theoretical work on classifiers (Cao et al., 2021; Deng et al.,
+2022; Wang & Thrampoulidis, 2022; Kothapalli & Tirer, 2025), we consider binary classification
+(C = 2), where the data is distributed according to a Gaussian Mixture Model (GMM) of order two
+in X = Rd, with one mixture component per class. Formally,
+j Id),
+Similar to previous theoretical works, we further assume that
+
+x | y = j ∼ N (µj, σ2
+
+P(y = j) = πj.
+
+y ∈ {1, 2},
+
+(3)
+
+µ2 = −µ1 = µ,
+
+1 = σ2
+σ2
+
+2 = σ2,
+
+π1 = π2 = 1/2,
+
+(4)
+
+where the magnitudes of the entries of µ are bounded by some universal constant, and σ is independent
+of d. Let us now define the separation quality factor of the GMM data, which can be understood as
+the signal-to-noise ratio (SNR):
+
+S :=
+
+(cid:18) ∥µ2 − µ1∥
+σ1 + σ2
+
+(cid:19)2
+
+=
+
+∥µ∥2
+σ2 .
+
+(5)
+
+Note that the considered setup is standard in theoretical works that aim at rigorous mathematical
+analysis (Cao et al., 2021; Deng et al., 2022; Wang & Thrampoulidis, 2022; Kothapalli & Tirer, 2025).
+Despite its compactness, the learning problem studied in this paper can be arbitrarily hard because
+(unlike some of the aforementioned works) our analysis covers SNR arbitrarily close to zero, i.e.,
+nearly indistinguishable classes.
+
+3
+
+The training data consists of Nj labeled i.i.d. samples per class j, denoted by D = {xi,j : j ∈
+{1, 2}, i = 1, . . . , Nj}. Without loss of generality, we denote N1 = N and N2 = γN for some
+γ ∈ (0, 1].
+
+The classifier. In the considered setting, the optimal Bayes classifier reads:
+
+copt(x) = arg max
+j∈{1,2}
+
+πjpx|y(x|j) = arg max
+j∈{1,2}
+
+(cid:16)
+
+exp
+
+− ∥x−µj ∥2
+2σ2
+
+(cid:17)
+
+= arg min
+j∈{1,2}
+
+∥x − µj∥ .
+
+In practice, the data distribution is unknown and thus a classifier cannot use the class means, {µi},
+but rather estimate them from the training set. We therefore study the classifier:
+
+(cid:98)c(x; D) = arg min
+
+j∈{1,2}
+
+∥x − (cid:98)µj(D)∥ ,
+
+(6)
+
+(cid:88)Nj
+i=1
+
+(cid:16)
+
+Nj
+
+xi,j is the maximum likelihood estimate of µj.
+
+where (cid:98)µj(D) = 1
+We want to explore if data processing can be beneficial even for a “strong” classifier. It is easy to
+see that (cid:98)µj ∼ N
+. In fact, this is an efficient estimator that attains the Cram´er–Rao
+lower bound on the variance for any Nj (Kay, 1993). Therefore, in our setting, not only that (cid:98)c(·)
+is structurally similar to copt(·) and converges to it for Nj → ∞, but it also has strong statistical
+properties for finite Nj, making it a natural choice for our study. Demonstrating the benefit of low-
+level processing for such a classifier, which is “almost optimal” for the considered setup, underscores
+the potential advantages for weaker classifiers.
+
+µj, σ2
+Nj
+
+Id
+
+(cid:17)
+
+Data processing. As the pre-classification data processing, we are going to study a certain linear
+dimensionality reduction to 1 ≤ k < d. Specifically, we consider
+
+with A ∈ Rk×d that obeys
+
+z = Ax
+
+AA⊤ = Ik,
+
+∥Aµ∥ = ∥µ∥ .
+
+(7)
+
+Note that, for establishing our main theoretical claim on the practical limitation of Eq. 2, we
+just need the existence of a processing for which we can rigorously show improved classification.
+Nevertheless, in the sequel, we provide a constructive proof that also shows how such A can be
+learned from unlabeled data without prior knowledge of µ. Hence, showing that this procedure
+improves classification performance in our setup underscores the promise of practical low-level
+procedures learned from unlabeled data.
+
+Additional notations. We will analyze and compare the performance of the classifier in Eq. 6
+before and after the data processing procedure, namely, (cid:98)c(x; D) versus (cid:98)c(z; Dz), where Dz =
+{zi,j = Axi,j : j ∈ {1, 2}, i = 1, . . . , Nj}. We denote the probability of error in these two
+cases by px(error) := P((cid:98)c(x; D) ̸= y) and pz(error) := P((cid:98)c(z; Dz) ̸= y). Finally, we define the
+widely-used Q-function, which will be used to characterize the classification error probability:
+
+Q(x) = P (N (0, 1) > x) =
+
+1
+√
+2π
+
+(cid:90) ∞
+
+x
+
+exp
+
+(cid:17)
+
+(cid:16)
+
+− t2
+2
+
+dt.
+
+(8)
+
+3.2 THEORETICAL RESULTS
+
+In this subsection, we present our theoretical results. In Section 3.2.1, we prove that the error
+probability decreases due to the data processing. To this end, we establish expressions that accurately
+approximate the probability of error of the data-driven classifier before and after the processing. We
+then analyze their relation, where, due to different proof strategies, this is done separately for the
+balanced and imbalanced training set cases. In Section 3.2.2, we provide a fine-grained analysis of
+the factors that affect the efficiency of the processing, and, for the balanced training set case, we also
+establish a connection between the maximal gain and the SNR.
+
+The proofs for all the claims are deferred to Appendix A.
+
+4
+
+3.2.1 PERFORMANCE GAIN DUE TO DATA PROCESSING
+
+We begin with characterizing the probability of error when the classifier is applied without pre-
+processing. Recall the definitions of S and Q(x) in Eq. 5 and Eq. 8, respectively.
+
+Theorem 2 (The probability of error before the processing). Consider the setup in Section 3.1. With
+approximation accuracy O(1/
+
+d) we have px(error) ≈ ˆpx(error) = ˆp(S, N, γ, d), where
+
+√
+
+ˆp(S, N, γ, d) :=
+
+
+
+· Q
+
+
+
+1
+2
+
+(cid:113) 1
+
+4N · 1+γ
+
+γ
+
+√
+
+S + 1
+
+· d
+S + 1
+√
+S − 1
+
+γ
+
+γ2
+
+4N · 1−γ
+8N 2 · 1+γ2
+4N · 1−γ
+8N 2 · 1+γ2
+
+γ2
+
+γ
+
+· d√
+S
+S + 1
+· d
+
+γN + 1
+
+
+
+
+
+· d√
+S
+S + 1
+· d
+
+N + 1
+
+(cid:113) 1
+
+4N · 1+γ
+
+γ
+
+S + 1
+· d
+
+
+
+· Q
+
+
+
++
+
+1
+2
+
+(9)
+
+
+
+ .
+
+Remark. The proof is mathematically involved. We express the error event as thresholding a scalar
+random variable, suitable for an application of a generalized Berry–Esseen theorem. However, this
+variable depends on the interrelation between the entries of (cid:98)µ1, (cid:98)µ2, and computing the required
+moments is a technical challenge.
+
+Discussion. Note that: 1) ˆp is symmetric in the following sense: ˆp (S, N, γ, d) = ˆp
+,
+which is expected because swapping the amount of samples between the classes does not change
+the problem; 2) As S → 0+ we have:
+ˆp(S, N, γ, d) = 1/2, aligned with uniform guess; 3) As
+
+S, γN, 1
+
+(cid:16)
+
+(cid:17)
+γ , d
+
+lim
+S→0+
+
+ˆp(S, N, γ, d) = 0, aligned with the classes being deterministically separable;
+
+S → ∞ we have:
+
+lim
+S→∞
+
+√
+
+and 4) As N → ∞ we have:
+
+lim
+N→∞
+which knows the exact distribution of the data (Fukunaga, 2013).
+
+ˆp(S, N, γ, d) = Q(
+
+S), which is the probability of error of copt,
+
+Let us explore the result of Theorem 2 for the case of balanced training data, γ = 1 (N2 = N1 = N ),
+in which the expression simplifies to:
+
+ˆpx(error) = Q
+
+
+
+
+
+(cid:113)(cid:0) d
+
+√
+
+S
+N + d
+
+
+
+ .
+
+N 2 + 1
+
+4S · 1
+
+2S + 1(cid:1) · 1
+Fix d ≫ 1, which ensures that the approximation is accurate. It is easy to see that when the separation
+quality factor (SNR), S, decreases (with fixed d), the argument of the Q-function decreases, and
+thus the probability of error increases. In addition, as the number of training samples N increases,
+the argument increases, and thus the probability of error decreases. These two results are aligned
+with intuition. Interestingly, the effect of increasing/decreasing d depends on its relation with S.
+For example, if d increases and S is fixed, which means that the average entry-wise SNR decreases,
+then the argument of the Q-function increases. The contrary holds if S ∝ d, which means that the
+average entry-wise SNR is fixed. In the latter case, high-dimensionality is advantageous in terms of
+the probability of error.
+
+(10)
+
+Next, let us establish the existence and learnability of the data processing proposed in Section 3.1.
+Theorem 3 (The existence and learnability of the processing). For all 1 ≤ k < d, there exists
+a dimension-reducing matrix A ∈ Rk×d with the properties stated in Eq. 7. Furthermore, given
+sufficiently many unlabeled samples, such a matrix can be learned to arbitrary accuracy.
+
+Remark. The proof of Theorem 3 is constructive. It provides an algorithm for computing such A
+and efficiently estimating the direction of µ from unlabeled data.
+
+Note that the semi-orthonormality of A implies that it cannot increase the norm of any vector, while
+the property ∥Aµ∥ = ∥µ∥ ensures that the separation quality remains unchanged (equal to Eq. 5)
+and is not reduced after the processing. In more detail, this implies that when applying Ax, the
+class-dependent component of x (i.e., the projection of x onto ±µ) is not attenuated. In contrast,
+the complementary component of x, which corresponds to within-class variability, is attenuated as
+the overall dimension is reduced and the semi-orthonormality of A prevents amplification. Taken
+
+5
+
+together, this is expected to facilitate classification, as will be rigorously proven below. More details
+and a graphical illustration of the action of A are presented in Appendix F.
+
+We now turn to characterizing the probability of error when applying the classifier on the processed
+data z = Ax.
+
+Theorem 4 (The probability of error on the processed data). Consider the setup in Section 3.1. With
+approximation accuracy O(1/
+k) we have pz(error) ≈ ˆpz(error) = ˆp (S, N, γ, k), where ˆp is
+defined in Eq. 9.
+
+√
+
+The approximate probability of error of the processed data, ˆpx(error), admits an expression similar
+to the one obtained for the raw data, ˆpz(error), but with a different dimension parameter (k instead
+of d). Note that in the high-dimensional case, i.e., d, k ≫ 1, these estimators are guaranteed to
+be accurate. Now, let us present the main outcomes of our theoretical study, which build on these
+expressions.
+
+We start with the case where there is no class imbalance in the training set, i.e., γ = 1 so N2 = N1 =
+N . The next theorem shows that the considered data processing yields a gain for any finite value
+N ≥ 1. We assume S > 0, as S = 0 is an uninteresting degenerate case.
+
+Theorem 5 (Performance gain under balanced training data). For γ = 1, and for all S > 0, 1 ≤
+k < d, and N ∈ N, we have
+
+ˆpx(error) > ˆpz(error).
+
+(11)
+
+Theorem 5 shows that when the training samples are balanced among the classes, the chosen
+processing always strictly decreases the approximated probability of error.
+
+Discussion. As shown in Theorems 2 and 4, in the high-dimensional case the true probabilities of
+error, px(error) and pz(error), are well approximated by ˆpx(error) and ˆpz(error). This makes the
+result significant. Moreover, this result—holding for any finite N —is also quite surprising, since
+in the limit of N → ∞ we have that px(error) and pz(error) converge to P(copt(x) ̸= y) and
+P(˜copt(z) ̸= y), respectively, which satisfy the opposite relation (≤) as shown in Theorem 1.
+We now consider the case of an imbalanced training set. The presence of under-represented classes
+or groups is of significant interest in the machine learning community, as it raises concerns about
+generalization and fairness (Chawla et al., 2002; Huang et al., 2016; Li et al., 2021). Specifically,
+while the classes have equal probability (π1 = π2 = 0.5), the number of training samples from each
+of the classes is assumed to be N1 = N and N2 = γN with 0 < γ < 1. The following theorem
+demonstrates the benefit of the considered data processing in this case as well.
+
+Theorem 6 (Performance gain under imbalanced training data). Let 0 < γ < 1, 0 < S ≤ 1, 1 ≤
+k < d. If N ≥ γ2−4γ+1
+
+2γ(1+γ) , then we have
+
+ˆpx(error) > ˆpz(error).
+
+(12)
+
+Remark. Unlike Theorem 5, which considers γ = 1 and is smoothly obtained from Theorems 2 and 4,
+in this case the complexity of the formulas of ˆpx(error) and ˆpz(error) required us to make technical
+assumptions on S and N in order to establish a rigorous statement for γ ∈ (0, 1). Nevertheless, these
+assumptions are reasonable and still encompass the interesting case of low SNR and a reasonable
+number of training samples. Note that for γ ≥ 0.162, the requirement N ≥ γ2−4γ+1
+2γ(1+γ) is vacuous
+(since N ≥ 1), so it only matters under severe imbalance (γ < 0.162).
+
+3.2.2 FACTORS THAT AFFECT THE PERFORMANCE GAIN
+
+So far, we have only considered the relation between ˆpx(error) and ˆpz(error). Let us now discuss
+the margin between them, which reflects the efficiency of the processing.
+
+Definition 1. We define the theoretical efficiency of the processing as
+
+η :=
+
+(cid:18) ˆpx(error) − ˆpz(error)
+ˆpx(error)
+
+(cid:19)
+
+· 100.
+
+(13)
+
+6
+
+The following theorem establishes an approximation of η for N ≫ 1, making it easier to gain insights
+into the different factors that affect the efficiency of the processing in the case of a large number of
+training samples.
+
+Theorem 7 (Analysis of the asymptotic efficiency). Let S > 0, 1 ≤ k < d, 0 < γ ≤ 1. Denote by
+NT = (1 + γ) N the total number of training samples. With approximation accuracy O(1/N 2
+T ), we
+have
+
+η ≈
+
+25
+√
+2
+
+2π
+
+·
+
+√
+
+exp (cid:0)− S
+(cid:1)
+2
+(cid:16)√
+
+S · Q
+
+S
+
+(cid:18)
+
+(cid:17) ·
+
+3 + 2γ +
+
+(cid:19)
+
+1
+γ
+
+· (d − k) ·
+
+1
+NT
+
+.
+
+(14)
+
+In particular, for NT ≫ 1: The efficiency increases when d − k increases or γ decreases within
+0 < γ ≤ 1/
+
+2; The efficiency decreases when S increases or NT increases.
+
+√
+
+Remark. The proof of Theorem 7 is based on first-order analysis, which differs from the proof
+technique used for Theorem 6. This allows us to reach the conclusion that there exists N0 ∈ N such
+that for all N ≥ N0 we have η > 0 (since the right-hand side of Eq. 14 is positive) which implies
+ˆpx(error) > ˆpz(error) without a technical assumption on S. On the other hand, Theorem 6 can hold
+even for small values of N , depending on γ.
+
+Discussion. Let us discuss the intuition behind the insights provided in Theorem 7. First, notice that
+in the considered regime of NT ≫ 1 training samples, the processing efficiency η monotonically
+decreases toward zero as NT increases. This is consistent with the fact that in the limit NT → ∞
+the classifier approaches the optimal Bayes classifier, which cannot be improved by data processing.
+In this regime, higher class separation S can be interpreted as equivalent to having more effective
+samples (akin to larger NT ), and hence less improvement through the pre-classification processing.
+Similarly, larger dimensionality reduction (d − k) can be viewed as greater coverage of the input
+domain, again, analogous to having more samples. Lastly, lower γ < 1 indicates that the classifier’s
+training samples are less balanced between the classes and hence differ more from the data distribution.
+Intuitively, this leaves more room for improvement through pre-classification processing.
+
+In addition, Appendix B provides an approximation of the difference ∆ := ˆpx(error) − ˆpz(error)
+for N ≫ 1. The insights we obtain are consistent with those reported in Theorem 7.
+
+So far, our theory shows that the processing efficiency η is positive for all N for γ = 1, and under
+a technical assumption it is positive also for γ ∈ (0, 1). Our formulas also show that η = 0 at
+N = 0 (where ˆpz = ˆpx = 0.5, i.e., probability of guessing) and that η → 0 at N → ∞ (where
+S), consistent with the classifier converging to the optimal Bayes classifier for
+ˆpz = ˆpx = Q(
+which Theorem 1 applies). Together, these imply that there is a maximum point of η(N ). Our final
+theorem provides a surprising insight into this maximum efficiency.
+
+√
+
+Theorem 8 (Analysis of the maximal efficiency). Fix γ = 1, and let S > 0, 1 ≤ k < d. Consider
+the efficiency η = η(N ) as a function of continuous N ∈ R+. We have that the maximal efficiency
+ηmax = max
+N ≥0
+
+η(N ) increases as a function of S.
+
+Discussion. In the asymptotic regime of N → ∞, as discussed above, a higher SNR corresponds to
+lower η, which aligns with intuition. Interestingly, however, the theorem shows that a higher SNR
+also leads to a larger ηmax, which is somewhat counterintuitive. One might expect that lower noise
+would reduce efficiency across all sample sizes, since the raw data is already well-separated. This
+highlights the subtle relationship between η and the SNR. An extended version of the theorem can be
+found in Appendix A.8.
+
+3.3 EMPIRICAL VERIFICATION
+
+In this subsection, we simulate the theoretical setup in order to further support our theoretical results
+and also gain more insights on the model, e.g., factors that affect the efficiency of the data processing
+for small to moderate values of N .
+
+We consider data dimension d = 2000, and fix σ = 1. The SNR values we work with are S ∈
+{0.752, 1.52}, and for each fixed SNR, we use γ ∈ {0.25, 0.5, 1}. We also consider a wide range of
+Ntrain, which denotes the total number of given training samples. For each fixed tuple (S, γ, Ntrain),
+
+7
+
+(a) S = 0.752
+
+(b) S = 1.52
+
+Figure 1: The theoretical setup. Efficiency of the data processing procedure versus the number of
+training samples Ntrain, for various values of the training imbalance factor, γ, and the SNR, S.
+
+√
+
+√
+
+S v
+
+we randomize µ ∈ Rd with ∥µ∥ = σ
+∥v∥ where v ∼ N (0, Id). We then
+S, via µ = σ
+construct the data processing matrix A ∈ Rk×d that reduces the dimension to k = 1000, using the
+algorithm described in Appendix A.3. Per trial, we sample N1 = int( Ntrain
+1+γ ) training points from
+N (−µ, σ2Id), and N2 = int( γNtrain
+1+γ ) training points from N (µ, σ2Id). Before and after the data
+processing, the per-class means are estimated using the training points, and the classifier defined in
+Eq. 6 is used on a large amount of fresh test data, sampled with probability 0.5 from each of the two
+Gaussians. With a slight abuse of notation, we denote the empirical probabilities of error before and
+after the data processing by px(error) and pz(error), respectively. In order to compute pz(error),
+we use the training and test samples after processing them by multiplying with A. We then compute
+the empirical efficiency of the processing, defined by χ =
+· 100. We repeat the
+computation of χ over 100 independent trials and report the average.
+
+(cid:16) px(error)−pz(error)
+px(error)
+
+(cid:17)
+
+Figure 1 presents both the theoretical efficiency η, defined in Eq. 13, and the empirical efficiency χ
+versus the number of training samples Ntrain, for various values of γ and S. Note that the empirical
+and theoretical efficiencies closely match in all the configurations.
+
+Let us discuss the trends that are observed in Figure 1. First, note the non-monotonic curves depicting
+the efficiency as a function of Ntrain. When Ntrain approaches zero or grows to infinity the efficiency
+tends to zero, aligned with our analytical formulas. Indeed, as discussed above, in the absence of
+training data the classification is based on guess, and thus there is no effect for the data processing. In
+the considered setup, as Ntrain → ∞, the classifiers tend to the optimal Bayes decision rules, which
+again implies zero efficiency. A major contribution of our paper is providing rigorous theory for the
+fact that the efficiency remains positive between these two extreme cases.
+
+Let us now focus on Ntrain ≫ 1 (the right boundary of each sub-figure). We see that increased S
+moderately reduces the efficiency. For example, for (S, γ, Ntrain) = (0.752, 1, 10K) the efficiency is
+around 6, while for (S, γ, Ntrain) = (1.52, 1, 10K) it is around 5. Moreover, we see that lower values
+of γ, corresponding to more imbalanced training data, yield higher efficiency of the data processing.
+Note that both are aligned with the insights gained in Theorem 7.
+
+Next, note that each of the curves depicts a single maximum point, whose value is aligned with the
+non-intuitive prediction of Theorem 8. Specifically, the maximal efficiency value increases with S.
+
+Lastly, note that the empirical investigation of our theoretical setup reveals behaviors at relatively
+small values of Ntrain, which lie beyond the scope of our theoretical analysis. Specifically, we observe
+that the relation between decrease in γ and increase in efficiency emerges already at quite low Ntrain.
+We also observe dependency between the overall shape of the curves and the value of S.
+
+Additional verification experiments with A that is learned from unlabeled samples, and different
+values of S, k are presented in Appendix F. All of them are aligned with our theoretical insights.
+
+4 EXPERIMENTS IN PRACTICAL SETTINGS
+
+While our paper focuses on theoretical contributions, in this section, we empirically examine the
+correlation between the behaviors observed in four practical deep learning settings and the theoretical
+
+8
+
+(a) σ = 0.25, γ = 1
+
+(b) σ = 0.4, γ = 1
+
+Figure 2: Noisy CIFAR-10 and pre-classification denoising. Efficiency versus Ntrain.
+
+results. Note that such a study, which examines the effects of sample size, SNR, and class balance,
+requires exhaustive training efforts of both the data-processing module and the classifier.
+
+4.1 NOISY CIFAR-10 AND PRE-CLASSIFICATION DENOISING
+
+We consider the CIFAR-10 dataset (Krizhevsky et al., 2009) and the ResNet18 model (He et al.,
+2016). The train and test sets both experience additive Gaussian noise of the same level (i.e., no
+distribution shift) with standard deviation σ ∈ {0.25, 0.4}. A detailed description of the training
+procedure of the classifier is given in Appendix C. We also note that we verify that the classifier
+performs well when trained on clean CIFAR-10 data, achieving 90% accuracy.
+
+The data processing step examined here is image denoising, applied to the noisy data, using the
+DnCNN model (Zhang et al., 2017). The denoiser is trained with the MSE loss on 15,000 clean
+unlabeled images, which are not part of the classifier’s training set. More details on the training
+procedure of the denoiser are given in Appendix C. Note that, given such a pretrained denoiser, the
+Markov chain: “label”—“noisy image”—“denoised image” still holds. Thus, the data processing
+inequality, as well as Theorem 1, suggest that the denoiser will not improve the results.
+
+In Appendix C, we also investigate another setting, where we train the denoiser with SURE loss (i.e.,
+without clean ground truth images) (Stein, 1981; Soltanayev & Chun, 2018), and observe similar
+results.
+
+We consider various values of Ntrain, the total number of given training samples (across all 10 classes),
+and examine different training imbalance factors, γ = 1 here, and γ ∈ {0.5, 0.75} in Appendix C. For
+both the denoised and the noisy case, and for each fixed tuple (σ, γ, Ntrain), we divide Ntrain
+1+γ equally
+among the first 5 classes, and γNtrain
+1+γ equally among the other 5 classes. We train the classifier 6 times,
+each time with a different seed, and report the average and standard deviation of the probabilities
+of error, to obtain a more reliable result. After we have the mean and standard deviation of the
+probability of error before and after the data processing, we compute the empirical efficiency, i.e., the
+relative percentage change in the probability of error induced by the denoising step.
+
+Figure 2 presents the efficiency versus Ntrain. We see two main similarities to the theory. First, the
+non-monotonic behavior (increasing for small Ntrain and decreasing for large Ntrain) is expected from
+the same argument in Section 3.3: the efficiency tends to zero as Ntrain tends to either 0 or ∞, while,
+importantly, it remains positive between these two extreme cases, aligned with our theory. Second,
+we see that the maximal efficiency value decreases with σ: its value for σ = 0.25 is larger than its
+value for σ = 0.4. That is, the maximal efficiency increases with the SNR.
+
+4.2 NOISY MINI-IMAGENET AND PRE-CLASSIFICATION ENCODING
+
+We turn to investigate a more complex data processing pipeline using the Mini-ImageNet dataset
+(Vinyals et al., 2016) and the ResNet50 model. Both the training and test sets are subjected to
+additive Gaussian noise with standard deviations σ ∈ {50/255, 100/255}. The data processing
+step examined here is an encoding step, which maps the images from 224 × 224 pixels to 256-
+dimensional embeddings. This encoder model follows (Lu et al., 2025) and is trained from scratch
+with self-supervision on all noisy unlabeled images for each noise level. Then, for each combination
+1+γ equally among the first 50 classes, and γNtrain
+of (σ, γ, Ntrain), we divide Ntrain
+1+γ equally among the other
+50 classes. Then, across three seeds, we train a ResNet50 model on the noisy images and, in parallel,
+
+9
+
+(a) σ = 50
+
+255 , γ = 1
+
+(b) σ = 100
+
+255 , γ = 1
+
+Figure 3: Noisy Mini-ImageNet and pre-classification encoding. Efficiency versus Ntrain.
+
+a small MLP on the corresponding embeddings. After we have the mean and standard deviation of
+the probability of error before and after the data processing, we compute the empirical efficiency, i.e.,
+the relative percentage change in the probability of error induced by the encoding step. Details of the
+training procedures for both the ResNet50 and the MLP are provided in Appendix D.
+
+Figure 3 presents the efficiency versus Ntrain, for γ = 1. Experiments for γ ∈ {0.5, 0.75} appear
+in Appendix D. We see the same trends that are aligned with our theory as before: 1) similar non-
+monotonicity of the curve while remaining positive, and 2) the maximal efficiency increases with
+the SNR. A message to practitioners is that when labeled samples are scarce, data processing can be
+especially advantageous for ‘high quality’ data.
+
+4.3 NOISY CIFAR-10 AND PRE-CLASSIFICATION ENCODING
+
+For the noisy CIFAR-10 setup considered in Section 4.1, we also examine the performance of data
+processing based on encoding instead of denoising. Due to space limitations, the details are deferred
+to Appendix E, and the results are presented there in Figure 9. The trends stated above are observed
+there as well.
+
+These results further demonstrate higher efficiency values compared to those obtained for the de-
+noising procedure in Section 4.1, indicating that, for the classification task, encoding may be a more
+effective low-level processing method than denoising. However, we believe that this may not be the
+case for other high-level tasks, which may require preserving spatial information in the image (e.g.,
+object detection).
+
+5 CONCLUSION
+
+In this paper, we addressed the question: How can we explain the common practice of performing
+a “low-level” task before a “high-level” downstream task, such as classification, despite theoretical
+principles like the data processing inequality and the overwhelming capabilities of modern deep neural
+networks? We presented a theoretical study of a binary classification setup, where we considered
+a “strong” classifier that is tightly connected to the optimal Bayes classifier (and converges to it),
+and yet, we constructed a pre-classification processing step that for any finite number of training
+samples provably improves the classification accuracy. We also provided both theoretical and
+empirical insights into various factors that affect the gains from such low-level processing. Finally,
+we demonstrated that the trends observed in four practical deep learning settings, where image
+denoising or encoding is applied before image classification, are consistent with those established by
+our theoretical study.
+
+Our work motivates ongoing research on signal and image restoration and enhancement (Garber &
+Tirer, 2024; 2025; Zhang et al., 2025; Hen et al., 2025) and other low-level tasks. Since it shows the
+benefit of low-level tasks even when the classifier’s training and test data share the same distribution,
+it naturally suggests an even greater advantage in out-of-distribution scenarios. As directions for
+future research, it would be valuable to extend the theoretical analysis to high-level tasks beyond
+classification or to investigate non-linear low-level processing. Another interesting direction is to
+study the optimal low-level processing corresponding to a given high-level task.
+
+10
+
+ACKNOWLEDGMENTS
+
+The work was supported by the Israel Science Foundation (No. 1940/23) and MOST (No. 0007091)
+grants.
+
+REFERENCES
+
+Christopher M Bishop. Pattern recognition and machine learning, volume 4. Springer, 2006.
+
+Yuan Cao, Quanquan Gu, and Mikhail Belkin. Risk bounds for over-parameterized maximum margin
+classification on sub-gaussian mixtures. Advances in Neural Information Processing Systems, 34:
+8407–8418, 2021.
+
+Nitesh V Chawla, Kevin W Bowyer, Lawrence O Hall, and W Philip Kegelmeyer. Smote: synthetic
+minority over-sampling technique. Journal of artificial intelligence research, 16:321–357, 2002.
+
+Thomas M Cover. Elements of information theory. John Wiley & Sons, 1999.
+
+Dengxin Dai, Yujian Wang, Yuhua Chen, and Luc Van Gool. Is image super-resolution helpful for
+other vision tasks? In 2016 IEEE Winter Conference on Applications of Computer Vision (WACV),
+pp. 1–9. IEEE, 2016.
+
+Zeyu Deng, Abla Kammoun, and Christos Thrampoulidis. A model of double descent for high-
+dimensional binary linear classification. Information and Inference: A Journal of the IMA, 11(2):
+435–495, 2022.
+
+William Feller. An introduction to probability theory and its applications, Volume 2, volume 2. John
+
+Wiley & Sons, 1991.
+
+Keinosuke Fukunaga. Introduction to statistical pattern recognition. Elsevier, 2013.
+
+Marylou Gabri´e, Andre Manoel, Cl´ement Luneau, Nicolas Macris, Florent Krzakala, Lenka Zde-
+borov´a, et al. Entropy and mutual information in models of deep neural networks. Advances in
+neural information processing systems, 31, 2018.
+
+Tomer Garber and Tom Tirer. Image restoration by denoising diffusion models with iteratively
+preconditioned guidance. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition, pp. 25245–25254, 2024.
+
+Tomer Garber and Tom Tirer. Zero-shot image restoration using few-step guidance of consistency
+models (and beyond). In Proceedings of the Computer Vision and Pattern Recognition Conference,
+pp. 2398–2407, 2025.
+
+Ziv Goldfeld and Kristjan Greenewald. Sliced mutual information: A scalable measure of statistical
+dependence. In A. Beygelzimer, Y. Dauphin, P. Liang, and J. Wortman Vaughan (eds.), Advances
+in Neural Information Processing Systems, 2021.
+
+Muhammad Haris, Greg Shakhnarovich, and Norimichi Ukita. Task-driven super resolution: Object
+detection in low-resolution images. In Neural Information Processing: 28th International Confer-
+ence, ICONIP 2021, Sanur, Bali, Indonesia, December 8–12, 2021, Proceedings, Part V 28, pp.
+387–395. Springer, 2021.
+
+Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image
+recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition,
+pp. 770–778, 2016.
+
+Liav Hen, Tom Tirer, Raja Giryes, and Shady Abu-Hussein. Robust posterior diffusion-based
+
+sampling via adaptive guidance scale. arXiv preprint arXiv:2511.18471, 2025.
+
+Dan Hendrycks and Thomas Dietterich. Benchmarking neural network robustness to common
+corruptions and perturbations. In International Conference on Learning Representations, 2019.
+
+11
+
+Chen Huang, Yining Li, Chen Change Loy, and Xiaoou Tang. Learning deep representation for
+imbalanced classification. In Proceedings of the IEEE conference on computer vision and pattern
+recognition, pp. 5375–5384, 2016.
+
+Hong Jun Jeon and Benjamin Van Roy. An information-theoretic framework for deep learning.
+
+Advances in Neural Information Processing Systems, 35:3279–3291, 2022.
+
+Steven M Kay. Fundamentals of statistical signal processing: estimation theory. Prentice-Hall, Inc.,
+
+1993.
+
+Vignesh Kothapalli and Tom Tirer. Can kernel methods explain how the data affects neural collapse?
+
+Transactions on Machine Learning Research, 2025. ISSN 2835-8856.
+
+Alex Krizhevsky, Geoffrey Hinton, et al. Learning multiple layers of features from tiny images. 2009.
+
+Sohyun Lee, Taeyoung Son, and Suha Kwak. Fifo: Learning fog-invariant features for foggy scene
+segmentation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pp. 18911–18921, 2022.
+
+Chengyang Li, Heng Zhou, Yang Liu, Caidong Yang, Yongqiang Xie, Zhongbo Li, and Liping Zhu.
+Detection-friendly dehazing: Object detection in real-world hazy scenes. IEEE Transactions on
+Pattern Analysis and Machine Intelligence, 45(7):8284–8295, 2023.
+
+Mingchen Li, Xuechen Zhang, Christos Thrampoulidis, Jiasi Chen, and Samet Oymak. Autobalance:
+Optimized loss functions for imbalanced data. Advances in Neural Information Processing Systems,
+34:3163–3177, 2021.
+
+Ding Liu, Bihan Wen, Xianming Liu, Zhangyang Wang, and Thomas S Huang. When image
+denoising meets high-level vision tasks: A deep learning approach. In 27th International Joint
+Conference on Artificial Intelligence, IJCAI 2018, pp. 842–848. International Joint Conferences on
+Artificial Intelligence, 2018.
+
+Dong Liu, Haochen Zhang, and Zhiwei Xiong. On the classification-distortion-perception tradeoff.
+
+Advances in Neural Information Processing Systems, 32, 2019.
+
+Wenquan Lu, Jiaqi Zhang, Hugues Van Assel, and Randall Balestriero. Ditch the denoiser: Emer-
+gence of noise robustness in self-supervised learning from data curriculum. arXiv preprint
+arXiv:2505.12191, 2025.
+
+Yanting Pei, Yaping Huang, Qi Zou, Yuhang Lu, and Song Wang. Does haze removal help cnn-based
+image classification? In Proceedings of the European conference on computer vision (ECCV), pp.
+682–697, 2018.
+
+Andrew M Saxe, Yamini Bansal, Joel Dapello, Madhu Advani, Artemy Kolchinsky, Brendan D
+Tracey, and David D Cox. On the information bottleneck theory of deep learning. Journal of
+Statistical Mechanics: Theory and Experiment, 2019(12):124020, 2019.
+
+Ravid Shwartz-Ziv and Naftali Tishby. Opening the black box of deep neural networks via information.
+
+arXiv preprint arXiv:1703.00810, 2017.
+
+Maneet Singh, Shruti Nagpal, Richa Singh, and Mayank Vatsa. Dual directed capsule network for
+very low resolution image recognition. In Proceedings of the IEEE/CVF international conference
+on computer vision, pp. 340–349, 2019.
+
+Shakarim Soltanayev and Se Young Chun. Training deep learning based denoisers without ground
+
+truth data. Advances in neural information processing systems, 31, 2018.
+
+Taeyoung Son, Juwon Kang, Namyup Kim, Sunghyun Cho, and Suha Kwak. Urie: Universal image
+enhancement for visual recognition in the wild. In Computer Vision–ECCV 2020: 16th European
+Conference, Glasgow, UK, August 23–28, 2020, Proceedings, Part IX 16, pp. 749–765. Springer,
+2020.
+
+Charles M Stein. Estimation of the mean of a multivariate normal distribution. The annals of Statistics,
+
+pp. 1135–1151, 1981.
+
+12
+
+Tom Tirer and Raja Giryes. Image restoration by iterative denoising and backward projections. IEEE
+
+Transactions on Image Processing, 28(3):1220–1234, 2018.
+
+Tom Tirer and Raja Giryes. Back-projection based fidelity term for ill-posed linear inverse problems.
+
+IEEE Transactions on Image Processing, 29:6164–6179, 2020.
+
+Naftali Tishby and Noga Zaslavsky. Deep learning and the information bottleneck principle. In 2015
+
+ieee information theory workshop (itw), pp. 1–5. Ieee, 2015.
+
+Oriol Vinyals, Charles Blundell, Timothy Lillicrap, Daan Wierstra, et al. Matching networks for one
+
+shot learning. Advances in neural information processing systems, 29, 2016.
+
+Ke Wang and Christos Thrampoulidis. Binary classification of gaussian mixtures: Abundance of
+support vectors, benign overfitting, and regularization. SIAM Journal on Mathematics of Data
+Science, 4(1):260–284, 2022.
+
+QuanLin Wu, Hang Ye, Yuntian Gu, Huishuai Zhang, Liwei Wang, and Di He. Denoising masked
+autoencoders help robust classification. In The Eleventh International Conference on Learning
+Representations, 2023.
+
+Yilun Xu, Shengjia Zhao, Jiaming Song, Russell Stewart, and Stefano Ermon. A theory of usable infor-
+mation under computational constraints. In International Conference on Learning Representations,
+2020.
+
+Jonghwa Yim and Kyung-Ah Sohn. Enhancing the performance of convolutional neural networks
+on quality degraded datasets. In 2017 International Conference on Digital Image Computing:
+Techniques and Applications (DICTA), pp. 1–8. IEEE, 2017.
+
+Bingliang Zhang, Wenda Chu, Julius Berner, Chenlin Meng, Anima Anandkumar, and Yang Song.
+Improving diffusion inverse problem solving with decoupled noise annealing. In Proceedings of
+the Computer Vision and Pattern Recognition Conference, pp. 20895–20905, 2025.
+
+Kai Zhang, Wangmeng Zuo, Yunjin Chen, Deyu Meng, and Lei Zhang. Beyond a gaussian denoiser:
+Residual learning of deep cnn for image denoising. IEEE transactions on image processing, 26(7):
+3142–3155, 2017.
+
+Kai Zhang, Yawei Li, Wangmeng Zuo, Lei Zhang, Luc Van Gool, and Radu Timofte. Plug-and-play
+image restoration with deep denoiser prior. IEEE Transactions on Pattern Analysis and Machine
+Intelligence, 44(10):6360–6376, 2021.
+
+Chong Zhou and Randy C Paffenroth. Anomaly detection with robust deep autoencoders.
+
+In
+Proceedings of the 23rd ACM SIGKDD international conference on knowledge discovery and data
+mining, pp. 665–674, 2017.
+
+13
+
+A PROOFS
+
+A.1 EXISTING RESULTS
+
+Let us present a proof for Theorem 1, which is similar to a proof that can be found in an arXiv version
+of (Liu et al., 2019), but better clarifies how the Markovianity is used.
+
+Theorem 1. Let y → x → z be a Markov chain where y ∈ {1, 2} denotes the sample class. We have
+
+P(copt(x) ̸= y) ≤ P(˜copt(z) ̸= y),
+
+where copt and ˜copt denote optimal Bayes classifiers.
+
+Proof. Let us denote by X , Z the supports of x, z, respectively, and by
+
+P1 := P(y = 1), P2 := P(y = 2),
+
+the prior probability for the binary label y ∈ {1, 2}. Let us also define:
+
+px1(ξ) := P (x = ξ | y = 1) , px2(ξ) := P (x = ξ | y = 2) .
+
+(15)
+
+(16)
+
+Now, from Eq. 15 and Eq. 16, the probability of error of the optimal Bayes classifier on x reads:
+
+P (copt(x) ̸= y) =
+
+=
+
+(cid:88)
+
+ξ∈X
+1
+2
+
+−
+
+min (P1px1 (ξ), P2px2 (ξ))
+
+1
+2
+
+(cid:88)
+
+ξ∈X
+
+|P1px1 (ξ) − P2px2(ξ)| .
+
+(17)
+
+Similarly to Eq. 16, we define:
+
+pz1(ζ) := P (z = ζ | y = 1) , pz2 (ζ) := P (z = ζ | y = 2) .
+
+(18)
+
+From Eq. 15 and Eq. 18, the probability of error of the optimal Bayes classifier on z reads:
+
+P (˜copt(z) ̸= y) =
+
+=
+
+(cid:88)
+
+ζ∈Z
+1
+2
+
+−
+
+min (P1pz1 (ζ), P2pz2 (ζ))
+
+1
+2
+
+(cid:88)
+
+ζ∈Z
+
+|P1pz1(ζ) − P2pz2(ζ)| .
+
+From Eq. 18 and the Markov assumption, we expand:
+
+pzi (ζ) = P (z = ζ | y = i) =
+
+P (z = ζ, x = ξ | y = i)
+
+(cid:88)
+
+ξ∈X
+
+=
+
+=
+
+=
+
+(cid:88)
+
+ξ∈X
+(cid:88)
+
+ξ∈X
+(cid:88)
+
+ξ∈X
+
+P (z = ζ | x = ξ, y = i) P (x = ξ | y = i)
+
+P (z = ζ | x = ξ) P (x = ξ | y = i)
+
+pz|x(ζ | ξ)pxi(ξ).
+
+(19)
+
+(20)
+
+The key step is the fourth equality, which eliminates the dependence on y in the first factor of the
+summand. We also denote
+
+pz|x(ζ | ξ) := P (z = ζ | x = ξ) .
+
+14
+
+By substituting Eq. 20 into Eq. 19, we get:
+
+P (˜copt(z) ̸= y) =
+
+=
+
+≥
+
+=
+
+=
+
+=
+
+1
+2
+
+1
+2
+
+1
+2
+
+1
+2
+
+1
+2
+
+1
+2
+
+−
+
+−
+
+−
+
+−
+
+−
+
+−
+
+1
+2
+
+1
+2
+
+1
+2
+
+1
+2
+
+1
+2
+
+1
+2
+
+|P1pz1(ζ) − P2pz2 (ζ)|
+
+P1pz|x(ζ | ξ)px1(ξ) − P2pz|x(ζ | ξ)px2(ξ)
+
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+
+(cid:88)
+
+ζ∈Z
+
+(cid:88)
+
+ζ∈Z
+
+(cid:88)
+
+(cid:88)
+
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:88)
+
+ξ∈X
+
+pz|x(ζ | ξ) · |P1px1 (ξ) − P2px2(ξ)|
+
+ζ∈Z
+(cid:88)
+
+ξ∈X
+(cid:88)
+
+pz|x(ζ | ξ) · |P1px1 (ξ) − P2px2(ξ)|
+
+(21)
+
+ζ∈Z
+
+
+|P1px1(ξ) − P2px2 (ξ)| ·
+
+
+
+pz|x(ζ | ξ)
+
+
+
+(cid:88)
+
+ζ∈Z
+
+|P1px1 (ξ) − P2px2(ξ)|
+
+ξ∈X
+
+(cid:88)
+
+ξ∈X
+
+(cid:88)
+
+ξ∈X
+
+= P (copt(x) ̸= y) .
+
+Let us now present a theorem that will be utilized in the proof of Theorem 2.
+Theorem 9 (Generalized Berry-Esseen Theorem, (Feller, 1991)). Let X1, X2, . . . , Xd be independent
+random variables with:
+
+• Means ηi = E[Xi].
+
+• Variances ξ2
+
+i = Var(Xi).
+
+• Third absolute moments ρi = E
+
+|Xi − ηi|3(cid:105)
+(cid:104)
+
+.
+
+Define the normalized sum:
+
+Sd =
+
+1
+(cid:113)(cid:80)d
+
+i=1 ξ2
+i
+
+d
+(cid:88)
+
+(Xi − ηi).
+
+i=1
+
+Then, there exists an absolute constant C0 > 0 independent of d such that:
+
+|P(Sd > x) − Q(x)| ≤
+
+sup
+x∈R
+
+(cid:80)d
+
+C0
+(cid:16)(cid:80)d
+
+i=1 ρi
+(cid:17) 3
+
+2
+
+.
+
+i=1 ξ2
+i
+
+In the following subsections, we present the proofs of Theorems 2, 3, 4, 5, 6, 7, 8.
+
+A.2 PROOF OF THEOREM 2
+
+Proof. The probability of error is
+
+px(error) = P ((cid:98)c(x) ̸= y) = π1 · P ((cid:98)c(x) = 2 | y = 1) + π2 · P ((cid:98)c(x) = 1 | y = 2)
+1
+2
+
+· P ((cid:98)c(x) = 1 | y = 2)
+
+=
+
+1
+2
+1
+2
+
+=
+
+· P ((cid:98)c(x) = 2 | y = 1) +
+1
+2
+
+· q(1, 2) +
+
+· q(2, 1)
+
+(22)
+
+15
+
+where we used the assumption of a uniform prior and defined
+
+q(i, j) = P ((cid:98)c(x) = j | y = i) .
+
+Following Eq. 6, the first conditional probability of error q(1, 2) reads:
+
+q(1, 2) = P
+
+(cid:16)
+
+∥x − (cid:98)µ2∥2 < ∥x − (cid:98)µ1∥2 | y = 1
+
+(cid:17)
+
+1 x + (cid:98)µ⊤
+
+1 (cid:98)µ1 | y = 1(cid:1)
+
+(cid:16)
+
+= P (cid:0)(x − (cid:98)µ2)⊤(x − (cid:98)µ2) < (x − (cid:98)µ1)⊤(x − (cid:98)µ1) | y = 1(cid:1)
+= P (cid:0)x⊤x − x⊤
+(cid:98)µ1 − (cid:98)µ⊤
+2 x + (cid:98)µ⊤
+(cid:98)µ2 − (cid:98)µ⊤
+(cid:17)
+2 x + ∥ (cid:98)µ2∥2 < −2 (cid:98)µ⊤
+−2 (cid:98)µ⊤
+2( (cid:98)µ2 − (cid:98)µ1)⊤x > ∥ (cid:98)µ2∥2 − ∥ (cid:98)µ1∥2 | y = 1
+(cid:33)
+(cid:32)
+
+2 (cid:98)µ2 < x⊤x − x⊤
+1 x + ∥ (cid:98)µ1∥2 | y = 1
+
+= P
+
+= P
+
+(cid:16)
+
+(cid:17)
+
+= P
+
+( (cid:98)µ2 − (cid:98)µ1)⊤x >
+
+(cid:32)
+
+= P
+
+( (cid:98)µ2 − (cid:98)µ1)⊤x −
+
+= P (w > 0 | y = 1)
+
+∥ (cid:98)µ2∥2 − ∥ (cid:98)µ1∥2
+2
+∥ (cid:98)µ2∥2 − ∥ (cid:98)µ1∥2
+2
+
+| y = 1
+
+(cid:33)
+
+> 0 | y = 1
+
+where we defined
+
+Let us define
+
+Thus,
+
+w = ( (cid:98)µ2 − (cid:98)µ1)⊤ x −
+
+(cid:16)
+
+∥ (cid:98)µ2∥2 − ∥ (cid:98)µ1∥2(cid:17)
+
+.
+
+1
+2
+
+yi = ((cid:98)µ2)i · xi − ((cid:98)µ1)i · xi −
+
+1
+2
+
+· ((cid:98)µ2)2
+
+i +
+
+1
+2
+
+· ((cid:98)µ1)2
+i .
+
+w =
+
+d
+(cid:88)
+
+i=1
+
+yi.
+
+In total, from Eq. 24, Eq. 27, it follows that:
+
+q(1, 2) = P
+
+(cid:33)
+
+yi > 0 | y = 1
+
+.
+
+(cid:32) d
+
+(cid:88)
+
+i=1
+
+(23)
+
+(24)
+
+(25)
+
+(26)
+
+(27)
+
+(28)
+
+The setup of our theoretical investigation clearly implies that the random variables {yi}d
+i=1, defined
+in Eq. 26, are independent, and thus we can apply Theorem 9. Let us now compute the following
+expressions, that will be crucial when applying Theorem 9:
+
+1.
+
+2.
+
+3.
+
+Note that:
+
+ηi := E[yi]
+
+ξ2
+i := Var(yi)
+
+ρi := E
+
+|yi − ηi|3(cid:105)
+(cid:104)
+
+(cid:18)
+
+(cid:98)µj ∼ N
+
+µj,
+
+(cid:19)
+
+Id
+
+.
+
+σ2
+Nj
+
+(29)
+
+(30)
+
+(31)
+
+Thus, given equations Eq. 3, Eq. 4, for each 1 ≤ i ≤ d, we have:
+
+pj,i := ((cid:98)µj)i ∼ N
+
+(cid:18)
+
+(µj)i ,
+
+(cid:19)
+
+σ2
+Nj
+
+, xi | y = 1 ∼ N (cid:0)−µi, σ2(cid:1)
+
+(32)
+
+16
+
+and from Eq. 26, it follows that:
+
+yi = p2,ixi − p1,ixi −
+
+1
+2
+
+p2
+2,i +
+
+1
+2
+
+p2
+1,i
+
+where from Eq. 4, Eq. 32, we have:
+
+(cid:18)
+
+p2,i ∼ N
+
+µi,
+
+(cid:19)
+
+σ2
+N2
+
+(cid:18)
+
+, p1,i ∼ N
+
+−µi,
+
+(cid:19)
+
+.
+
+σ2
+N1
+
+For every 1 ≤ i ≤ d, let us define the following random variables:
+
+ai := (p2,i − p1,i) · xi, bi := p2
+
+2,i − p2
+
+1,i.
+
+Thus, from Eq. 33, it follows that:
+
+yi = ai −
+
+1
+2
+
+bi.
+
+We first compute ηi = E[yi] : From Eq. 36, it follows that:
+
+ηi = E [yi] = E [ai] −
+
+1
+2
+
+E [bi] .
+
+(33)
+
+(34)
+
+(35)
+
+(36)
+
+(37)
+
+We now compute each expectation separately. From Eq. 32, Eq. 34, and the assumption of indepen-
+dence, it follows that:
+
+E[ai] = E [p2,ixi] − E [p2,ixi]
+
+and
+
+= E [p2,i] · E [xi] − E [p1,i] · E [xi]
+= −µ2
+= −2µ2
+i
+
+i − µ2
+i
+
+2,i] − E (cid:2)p2
+
+1,i
+
+(cid:3)
+
++ µ2
+i
+
+(cid:19)
+
+−
+
+(cid:18) σ2
+N1
+
+(cid:19)
+
++ µ2
+i
+
+=
+
+E[bi] = E[p2
+(cid:18) σ2
+N2
+(cid:18) 1
+γN
+
+= σ2
+
+(cid:19)
+
+−
+
+1
+N
+
+1 − γ
+γ
+Thus, from Eq. 37, Eq. 38, Eq. 39, we have:
+
+=
+
+·
+
+σ2
+N
+
+.
+
+ηi = −2µ2
+
+i −
+
+1
+2
+
+·
+
+1 − γ
+γ
+
+·
+
+σ2
+N
+
+(cid:18)
+
+= −
+
+2µ2
+
+i +
+
+1 − γ
+γ
+
+·
+
+σ2
+2N
+
+(cid:19)
+
+.
+
+(38)
+
+(39)
+
+(40)
+
+We now compute ξ2
+
+i = Var(yi) : From Eq. 36, we have:
+
+ξ2
+i = Var(yi) = Var(ai) +
+
+1
+4
+
+· Var(bi) − Cov (ai, bi) .
+
+(41)
+
+We now compute each piece separately, starting from Var(ai). From equations Eq. 32, Eq. 34, Eq. 35,
+Eq. 38, it follows that:
+
+Var(ai) = E[a2
+(cid:104)
+
+= E
+
+(cid:3) − 4µ4
+
+i
+
+· E (cid:2)x2
+(cid:19)
+
+i
+
+i ] − E[ai]2
+(p2,i − p1,i)2(cid:105)
+σ2
+N
+
+·
+
+=
+
+=
+
+(cid:18) 1 + γ
+γ
+1 + γ
+γ
+
+·
+
++ 4µ2
+i
+(cid:18) 1 + γ
+γ
+
++ µ2
+i ·
+
+σ4
+N
+
+(cid:19)
+
++ 4σ2
+
+·
+
+σ2
+N
+
+· (cid:0)σ2 + µ2
+
+(cid:1) − 4µ4
+
+i
+
+(42)
+
+i
+
+17
+
+where we used the statistical independence between p2,i, p1,i and Eq. 34, to conclude that:
+
+p2,i − p1,i ∼ N
+
+2µi,
+
+(cid:18)
+
+σ2
+N1
+
++
+
+(cid:19)
+
+σ2
+N2
+
+⇒ p2,i − p1,i ∼ N
+
+2µi,
+
+(cid:18)
+
+1 + γ
+γ
+
+·
+
+σ2
+N
+
+(cid:19)
+
+.
+
+(43)
+
+We now compute Var(bi). From equations Eq. 34, Eq. 35, and the statistical independence between
+p2,i, p1,i, it follows that:
+
+=
+
+2,i
+(cid:18) σ2
+N2
+
+Var(bi) = Var (cid:0)p2
+= Var (cid:0)p2
+2σ2
+N2
+2σ4
+γ2N 2 +
+1 + γ2
+γ2
+
+=
+
+=
+
+·
+
+2,i − p2
+1,i
+
+(cid:1)
+(cid:1) + Var (cid:0)p2
+
+(cid:1)
+
+1,i
+
+(cid:19)
+
++
+
++ 2µ2
+i
+
+2σ2
+N1
+
+4σ2µ2
+i
+γN
+
++
+
+2σ4
+N 2 +
+
+2σ4
+N 2 +
+
+1 + γ
+γ
+
+·
+
+(cid:18) σ2
+N1
+4σ2µ2
+i
+N
+4σ2µ2
+i
+N
+
++ 2µ2
+i
+
+(cid:19)
+
+(44)
+
+where we used the fact that if x ∼ N (cid:0)µx, σ2
+
+x
+
+(cid:1), then
+
+Var(x2) = E[x4] − E[x2]2
+= (cid:0)3σ4
+xµ2
+x + 6σ2
+= (cid:0)3σ4
+xµ2
+x + 6σ2
+xµ2
+x + 4σ2
+= 2σ4
+x
+x · (cid:0)σ2
+x + 2µ2
+= 2σ2
+x
+
+(cid:1) .
+
+x + µ4
+x
+x + µ4
+x
+
+(cid:1)2
+
+(cid:1) − (cid:0)σ2
+(cid:1) − (cid:0)σ4
+
+x + µ2
+x
+x + 2σ2
+
+xµ2
+
+x + µ4
+x
+
+(cid:1)
+
+Finally, we compute Cov(ai, bi). From equations Eq. 32, Eq. 34, Eq. 35, Eq. 38, Eq. 39, it follows
+that:
+
+Cov(ai, bi) = E [aibi] − E[ai] · E[bi]
+
+= E (cid:2)(p2,i − p1,i) (cid:0)p2
+
+2,i − p2
+1,i
+
+(cid:1) · xi
+
+(cid:3) +
+
+1 − γ
+γ
+
+·
+
+= (cid:0)E (cid:2)p3
+
+2,i
+
+(cid:3) − E [p2,i] · E (cid:2)p2
+(cid:19)
+(cid:18)(cid:18)
+
+1,i
+
+µ3
+
+i + 3µi ·
+
+σ2
+N2
+
+(cid:3) − E [p1,i] · E (cid:2)p2
+(cid:19)
+(cid:18) σ2
+N1
+
++ µ2
+i
+
+− µi ·
+
+(cid:3)(cid:1) · E [xi] +
+(cid:18)
+(cid:19)
+
+1 − γ
+γ
+
+·
+
+2σ2µ2
+i
+N
+σ2
+N1
+
+(cid:19)(cid:19)
+
++ µi ·
+
++ µ2
+i
+
+−
+
+µ3
+
+i + 3µi ·
+
+2σ2µ2
+i
+N
+(cid:3) + E (cid:2)p3
+
+2,i
+
+1,i
+(cid:18) σ2
+N2
+
+= −µi ·
+
++
+
+1 − γ
+γ
+
+= −µi ·
+
+·
+
+(cid:18)
+
+2σ2µ2
+i
+N
+
+4µi ·
+
+σ2
+γN
+4σ2µ2
+i
+γN
+4σ2µ2
+i
+N
+2σ2µ2
+i
+N
+
+=
+
+4σ2µ2
+i
+N
+1 − γ
+γ
+1 − γ
+γ
+
+= −
+
+= −
+
+−
+
+·
+
+·
+
+− 4µi ·
+
+(cid:19)
+
+σ2
+N
+
++
+
+1 − γ
+γ
+
+·
+
+2σ2µ2
+i
+N
+
++
+
++
+
+1 − γ
+γ
+1 − γ
+γ
+
+·
+
+·
+
+2σ2µ2
+i
+N
+2σ2µ2
+i
+N
+
+where we used the fact that if x ∼ N (cid:0)µx, σ2
+
+x
+
+(cid:1), then
+
+E[x3] = µ3
+
+x + 3µxσ2
+x.
+
+18
+
+(45)
+
+(46)
+
+ξ2
+i ≥ D :=
+
+σ4
+N
+|yi − ηi|3(cid:105)
+
+(cid:104)
+
+Thus, from equations Eq. 41, Eq. 42, Eq. 44, Eq. 45, it follows that:
+
+ξ2
+i =
+
++
+
+=
+
+·
+
+·
+
+σ4
+1 + γ
+γ
+N
+(cid:18) 1 + γ2
+1
+γ2
+4
+σ4
+1 + γ
+N
+γ
+(cid:18) 1 + γ
+γ
+(cid:18) 1 + γ
+γ
+
+·
+
+·
+
+·
+
+= σ2
+
+= σ2
+
++ µ2
+i ·
+
+·
+
++
+
+2σ4
+N 2 +
+1 + γ2
+γ2
+
+σ2
+N
+σ2
+N
+
++
+
++
+
+(cid:19)
+
++
+
+·
+
+·
+
+(cid:19)
+
++ 4σ2
+
+σ2
+N
+4σ2µ2
+i
+N
+
+(cid:18) 1 + γ
+γ
+1 + γ
+γ
+σ4
+2N 2 + µ2
+σ2
+N 2 + 4µ2
+σ2
+N 2 + 4µ2
+
+1 + γ2
+2γ2
+1 + γ2
+2γ2
+
+·
+
+·
+
+·
+
+i
+
+i
+
+i
+
+(cid:18) 1 + γ
+γ
+(cid:18)
+
+(cid:18)
+
+2σ2µ2
+i
+N
+1 − γ
+γ
+1
+N
+
+·
+
++
+
+·
+
+·
+
++
+
+1 − γ
+γ
+2σ2
+N
+1 + γ
+2γ
+1
+γN
+
+1 +
+
+1 +
+
+(cid:19)(cid:19)
+
+.
+
++ 4σ2
+
+(cid:19)
+
+(47)
+
+·
+
+2σ2
+N
+1 − γ
+2γ
+
+(cid:19)(cid:19)
+
+·
+
+1
+N
+
+We get the following lower bound:
+
+(cid:18) 1 + γ
+γ
+
+·
+
++
+
+1 + γ2
+2γ2
+
+·
+
+1
+N
+
+(cid:19)
+
+.
+
+(48)
+
+Finally, we compute ρi = E
+following inequality, which holds for any real-valued random variable x with E[x4] < ∞:
+|x|3(cid:105)
+
+≤ (cid:0)E (cid:2)x4(cid:3)(cid:1) 3
+4 .
+
+: We will show that ρi is globally bounded. We first note the
+
+E
+
+(cid:104)
+
+This is a consequence of Lyapunov’s inequality. Setting x = yi − µi yields the following upper
+bound:
+
+ρi = E
+
+|yi − ηi|3(cid:105)
+(cid:104)
+
+≤
+
+(cid:16)
+
+E
+
+(yi − ηi)4(cid:105)(cid:17) 3
+(cid:104)
+
+4
+
+.
+
+(49)
+
+We now expand:
+
+(yi − ηi)4 = y4
+
+i − 4y3
+
+i ηi + 6y2
+
+i η2
+
+i − 4yiη3
+
+i + η4
+i
+
+which, from Eq. 49, implies that:
+
+ρi ≤ (cid:0)E[y4
+= (cid:0)E[y4
+= (cid:0)E[y4
+= (cid:0)E[y4
+
+(cid:1) 3
+
+4
+
+i ] − 4ηi · E[y3
+i ] − 4ηi · E[y3
+i ] − 4ηi · E[y3
+i ] − 4ηi · E[y3
+
+i ] + 6η2
+i ] + 6η2
+i ] + 6η2
+i ] + 6η2
+
+i ] − 4η3
+
+i · E[y2
+i · E[yi] + η4
+i
+i · (cid:0)Var(yi) + E[yi]2(cid:1) − 3η4
+i · (cid:0)ξ2
+(cid:1) − 3η4
+i + η2
+i
+(cid:1) 3
+i ξ2
+
+i + 3η4
+i
+i = Var(yi), ηi = E[yi]. It is now left to compute
+
+(cid:1) 3
+
+(cid:1) 3
+
+4
+
+i
+
+i
+
+4
+
+4
+
+where we used the definitions ξ2
+
+which implies, from Eq. 50, that
+
+χi := E[y4
+
+i ], δi := E[y3
+i ]
+
+ρi ≤ (cid:0)χi − 4δiηi + 6ξ2
+Let f ∈ {η, ξ2, δ, χ}. We argue that for all 1 ≤ i ≤ d:
+
+i η2
+
+i + 3η4
+i
+
+(cid:1) 3
+
+4 .
+
+fi =
+
+q(i,f )
+(cid:88)
+
+k=0
+
+ck(i, f ) · µk
+i
+
+(50)
+
+(51)
+
+(52)
+
+(53)
+
+where q(i, f ) ∈ N and the constants {ck(i, f )}q(i,f )
+follows that structure in equations Eq. 40, Eq. 41.
+
+k=0 don’t depend on d. We already saw that ηi, ξi
+
+We now compute δi. From Eq. 36, it follows that:
+(cid:19)3(cid:35)
+
+(cid:34)(cid:18)
+
+δi = E
+
+ai −
+
+1
+2
+
+bi
+
+(54)
+
+= E (cid:2)a3
+
+i
+
+(cid:3) −
+
+E (cid:2)a2
+
+i bi
+
+(cid:3) +
+
+3
+2
+
+3
+4
+
+E (cid:2)aib2
+
+i
+
+(cid:3) −
+
+E (cid:2)b3
+
+i
+
+(cid:3)
+
+1
+8
+
+19
+
+we now compute each part separately, starting with E[a3
+assumption of independence, it follows that:
+
+i ]. From equations Eq. 32, Eq. 35, and the
+
+E (cid:2)a3
+
+i
+
+(cid:3) = E
+
+= E
+(cid:18)
+
+=
+
+(cid:105)
+
+(cid:104)
+
+(cid:104)
+
+(p2,i − p1,i)3 · x3
+i
+(p2,i − p1,i)3(cid:105)
+1 + γ
+γ
+
+i + 6µi ·
+
+·
+
+8µ3
+
+i
+σ2
+N
+
+· E (cid:2)x3
+
+(cid:3)
+
+(cid:19)
+
+(cid:0)−µ3
+
+i − 3µiσ2(cid:1)
+
+(55)
+
+= −µ2
+i
+
+(cid:18)
+
+8µ2
+
+i +
+
+6(1 + γ)
+γ
+
+·
+
+σ2
+N
+
+(cid:19)
+
+(cid:0)µ2
+
+i + 3σ2(cid:1)
+
+which is a polynomial in µi with real coefficients. The other expressions are computed similarly, and
+they all have the form as in Eq. 53. We now turn to the assumption that
+
+∃M ≥0 ∀d∈N ∀1≤i≤d |µi| ≤ M
+
+(56)
+
+and thus for each f ∈ F := {η, ξ2, δ, χ} and for all 1 ≤ i ≤ d, from the triangle inequality, it follows
+that:
+
+q(i,f )
+(cid:88)
+
+q(i,f )
+(cid:88)
+
+|fi| ≤
+
+|ck(i, f )| · |µi|k ≤
+
+|ck(i, f )| · M k
+
+k=0
+
+k=0
+
+maxf ∈F q(i,f )
+(cid:88)
+
+≤
+
+k=0
+
+max
+f ∈F
+
+|ck(i, f )| · M k
+
+≤ max
+1≤i≤d
+
+maxf ∈F q(i,f )
+(cid:88)
+
+k=0
+
+max
+f ∈F
+
+|ck(i, f )| · M k
+
+where we define ck(i, f ) = 0 for all k > q(i, f ). Let us denote
+
+L := max
+1≤i≤d
+
+maxf ∈F q(i,f )
+(cid:88)
+
+k=0
+
+max
+f ∈F
+
+|ck(i, f )| · M k.
+
+(57)
+
+(58)
+
+Thus, from Eq. 57, we have:
+
+∀f ∈F ∀1≤i≤d |fi| ≤ L.
+(59)
+Now, L is independent of i (because we took the maximum over all possible 1 ≤ i ≤ d) and d
+(because the degree q and the coefficients c will never depend directly on d, because σ doesn’t depend
+on d). We thus showed that the absolute value of each relevant moment is upper bounded by a global
+value L ≥ 0 that is independent of i and d. Thus, from Eq. 52, Eq. 59, it follows that:
+
+ρi ≤ (cid:0)(cid:12)
+
+4
+
+(cid:1) 3
+
+(cid:12)
+i + 3η4
+(cid:12)χi − 4δiηi + 6ξ2
+i η2
+(cid:12)
+i
+≤ (cid:0)|χi| + 4 |δi| |ηi| + 6ξ2
+i + 3η4
+i η2
+i
+≤ (cid:0)L + 4L2 + 6L4 + 3L4(cid:1) 3
+= (cid:0)9L4 + 4L2 + L(cid:1) 3
+4 .
+
+4
+
+(cid:1) 3
+
+4
+
+Let us now denote C = (cid:0)9L4 + 4L2 + L(cid:1) 3
+independent of both i and d, and
+
+4 , where L ≥ 0 is defined in Eq. 58. Thus, C ≥ 0 is
+
+∀1≤i≤d ρi ≤ C.
+When combining this result with Eq. 48, we get that there exists some C ≥ 0, D > 0 that doesn’t
+depend on i or d such that
+
+ρi ≤ C, ξ2
+
+i ≥ D.
+
+Thus,
+
+(cid:80)d
+
+i=1 ρi
+
+(cid:16)(cid:80)d
+
+i=1 ξ2
+i
+
+(cid:17) 3
+
+2
+
+≤
+
+(cid:80)d
+
+i=1 C
+
+(cid:16)(cid:80)d
+
+i=1 D
+
+(cid:17) 3
+
+2
+
+≤
+
+C
+√
+D 3
+
+2
+
+d
+
+.
+
+(60)
+
+20
+
+We have verified that the conditions of Theorem 9 are satisfied, and thus, there exists some C0 > 0
+independent of d such that for all x ∈ R
+
+
+
+
+
+P
+
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+
+1
+(cid:113)(cid:80)d
+
+i=1 ξ2
+i
+
+d
+(cid:88)
+
+i=1
+
+
+
+(yi − ηi) > x | y = 1
+
+ − Q(x)
+
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+
+≤
+
+(cid:80)d
+
+C0
+(cid:16)(cid:80)d
+
+i=1 ρi
+(cid:17) 3
+
+2
+
+≤
+
+A
+√
+d
+
+i=1 ξ2
+i
+
+where we used Eq. 60, and denoted A =
+
+C0C
+D 3
+
+2
+
+≥ 0. Now, q(1, 2), which is defined in Eq. 28, reads:
+
+q(1, 2) = P
+
+= P
+
+(cid:32) d
+
+(cid:88)
+
+i=1
+(cid:32) d
+
+(cid:88)
+
+i=1
+
+(cid:33)
+
+yi > 0 | y = 1
+
+(yi − ηi) > −
+
+(cid:33)
+
+ηi | y = 1
+
+d
+(cid:88)
+
+i=1
+
+d
+(cid:88)
+
+(yi − ηi) > −
+
+
+
+
+
+| y = 1
+
+(cid:80)d
+(cid:113)(cid:80)d
+
+i=1 ηi
+i=1 ξ2
+i
+
+
+
+
+
+= P
+
+1
+(cid:113)(cid:80)d
+
+i=1 ξ2
+i
+
+
+
+= Q
+
+−
+
+i=1
+
+
+(cid:80)d
+(cid:113)(cid:80)d
+
+i=1 ηi
+i=1 ξ2
+i
+
+ + O
+
+(cid:19)
+
+(cid:18) 1
+√
+d
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+= Q
+
+= Q
+
+= Q
+
+= Q
+
+(cid:16)
+
+(cid:80)d
+
+i=1
+
+2µ2
+
+i + 1−γ
+
+γ
+
+(cid:17)
+
+· σ2
+2N
+
+(cid:114)
+
+(cid:80)d
+
+i=1 σ2
+
+(cid:16) 1+γ
+γ
+
+N + 1+γ2
+· σ2
+
+2γ2
+
+· σ2
+N 2 + 4µ2
+i
+
+(cid:16)
+
+1 + 1
+γN
+
+(cid:17)(cid:17)
+
+
+
+
+
+
+
++ O
+
+(cid:19)
+
+(cid:18) 1
+√
+d
+
+(cid:114)
+
+σ2 ·
+
+(cid:16)(cid:16) 1+γ
+γ
+
+N + 1+γ2
+· σ2
+
+2γ2
+
+d + 4
+
+(cid:16)
+
+1 + 1
+γN
+
+(cid:17)
+
+∥µ∥2(cid:17)
+
+2 ∥µ∥2 + d
+
+· σ2
+
+2N · 1−γ
+(cid:17)
+
+γ
+
+· σ2
+N 2
+
+
+
+
+
+
+
++ O
+
+(cid:19)
+
+(cid:18) 1
+√
+d
+
+∥µ∥ + d
+
+4N · 1−γ
+
+γ
+
+(cid:17)2
+
+(cid:16) σ
+∥µ∥
+
+·
+
++ 1
+
+8N 2 · 1+γ2
+
+γ2
+
+· σ2
+∥µ∥
+
+(cid:17)2(cid:19)
+
+(cid:16) σ
+∥µ∥
+
+·
+
+· d +
+
+(cid:16)
+
+1 + 1
+γN
+
+(cid:17)
+
+
+
+
+
+
+
+
+
++ O
+
+(cid:19)
+
+(cid:18) 1
+√
+d
+
+(cid:115)(cid:18)
+
+σ ·
+
+1
+
+4N · 1+γ
+
+γ
+
+(cid:115)(cid:18)
+
+1
+
+4N · 1+γ
+
+γ
+
+∥µ∥
+
+σ + d
+
+4N · 1−γ
+
+γ
+
+(cid:17)2
+
+(cid:16) σ
+∥µ∥
+
+·
+
++ 1
+
+8N 2 · 1+γ2
+
+γ2
+
+· σ
+∥µ∥
+
+(cid:16) σ
+∥µ∥
+
+·
+
+(cid:17)2(cid:19)
+
+· d +
+
+(cid:16)
+
+1 + 1
+γN
+
+(cid:17)
+
+
+
+
+
+
+
+
+
++ O
+
+(cid:19)
+
+.
+
+(cid:18) 1
+√
+d
+
+(61)
+
+We now revisit Eq. 5:
+
+Thus, from Eq. 61, q(1, 2) reads:
+
+S =
+
+(cid:18) ∥µ∥
+σ
+
+(cid:19)2
+
+.
+
+q(1, 2) = Q
+
+
+
+
+
+√
+
+S + 1
+
+(cid:113) 1
+
+4N · 1+γ
+
+γ
+
+S + 1
+· d
+
+γ
+
+4N · 1−γ
+8N 2 · 1+γ2
+
+· d√
+S
+S + 1
+· d
+
+γ2
+
+γN + 1
+
+
+
+ + O
+
+(cid:19)
+
+.
+
+(cid:18) 1
+√
+d
+
+(62)
+
+21
+
+We now compute q(2, 1). Similarly to the computation of q(1, 2), we have:
+q(2, 1) = P((cid:98)c(x) = 1 | y = 2)
+
+(cid:32)
+
+= P
+
+( (cid:98)µ2 − (cid:98)µ1)⊤x <
+
+∥ (cid:98)µ2∥2 − ∥ (cid:98)µ1∥2
+2
+
+| y = 2
+
+= P(w < 0 | y = 2)
+
+= P
+
+(cid:32) d
+
+(cid:88)
+
+i=1
+
+(cid:33)
+
+yi < 0 | y = 2
+
+(cid:33)
+
+(63)
+
+where the random variables {yi}d
+
+i=1 are defined in Eq. 33. The new conditional distribution of xi is:
+∀1≤i≤d xi | y = 2 ∼ N (µi, σ2).
+
+(64)
+
+We first compute ηi = E[yi]. It is easy to verify from Eq. 37, Eq. 38, Eq. 39, Eq. 64, that ηi is given
+by:
+
+σ2
+2N
+We now compute ξ2
+i = Var (yi). It still has three components, as in Eq. 41. It is easy to see from
+Eq. 44 that Var(bi) remains unchanged because it doesn’t depend on the conditional distribution of
+xi. Thus,
+
+1 − γ
+γ
+
+ηi = 2µ2
+
+i −
+
+(65)
+
+.
+
+·
+
+Var(bi) =
+
+1 + γ2
+γ2
+
+·
+
+2σ4
+N 2 +
+
+1 + γ
+γ
+
+·
+
+4σ2µ2
+i
+N
+
+.
+
+(66)
+
+We observe from Eq. 42, Eq. 64 that Var(ai) remains unchanged since it depends on E[x2
+which is unaffected.
+
+i ] = σ2 +µ2
+i ,
+
+Var(ai) =
+
+1 + γ
+γ
+
+·
+
+σ4
+N
+
++ µ2
+i ·
+
+(cid:18) 1 + γ
+γ
+
+·
+
+σ2
+N
+
++ 4σ2
+
+(cid:19)
+
+.
+
+(67)
+
+It remains to compute Cov(ai, bi) = E[aibi] − E[ai]E[bi]. From Eq. 38 and Eq. 64, we have
+E[ai] = 2µ2
+i . According to Eq. 39, E[bi] is unchanged, as it does not depend on the conditional
+distribution of xi. Similarly, from Eq. 45, E[aibi] picks up a minus sign, so overall, Cov(ai, bi)
+changes sign. Therefore, Eq. 45 implies:
+
+Cov(ai, bi) =
+
+1 − γ
+γ
+
+·
+
+2σ2µ2
+i
+N
+
+.
+
+(68)
+
+Thus, from equations Eq. 41, Eq. 66, Eq. 67, Eq. 68, it follows that:
+
+ξ2
+i =
+
++
+
+=
+
+·
+
+·
+
+·
+
+σ4
+1 + γ
+γ
+N
+(cid:18) 1 + γ2
+1
+γ2
+4
+σ4
+1 + γ
+γ
+N
+(cid:18) 1 + γ
+γ
+(cid:18) 1 + γ
+γ
+(cid:18) 1 + γ
+γ
+
+σ4
+N
+
+·
+
+·
+
+·
+
+= σ2
+
+= σ2
+
+≥
+
++ µ2
+i ·
+
+·
+
++
+
+2σ4
+N 2 +
+1 + γ2
+γ2
+
+(cid:19)
+
+−
+
+·
+
+·
+
+·
+
+(cid:19)
+
++ 4σ2
+
+σ2
+N
+4σ2µ2
+i
+N
+
+(cid:18) 1 + γ
+γ
+1 + γ
+γ
+σ4
+2N 2 + µ2
+σ2
+N 2 + 4µ2
+σ2
+N 2 + 4µ2
+(cid:19)
+
+1 + γ2
+2γ2
+1 + γ2
+2γ2
+
+·
+
+·
+
+i
+
+i
+
+i
+
+= D.
+
+(cid:18) 1 + γ
+γ
+(cid:18)
+
+1 + γ2
+2γ2
+
+·
+
+1
+N
+
++
+
++
+
+σ2
+N
+σ2
+N
+
++
+
+2σ2µ2
+i
+N
+1 − γ
+γ
+1
+N
+
+·
+
+·
+
+·
+
+−
+
+1 − γ
+γ
+2σ2
+N
+1 + γ
+2γ
+(cid:19)(cid:19)
+1
+N
+
+1 +
+
+1 +
+
+(cid:18)
+
+(cid:19)
+
++ 4σ2
+
+·
+
+2σ2
+N
+1 − γ
+2γ
+
+−
+
+(69)
+
+(cid:19)(cid:19)
+
+·
+
+1
+N
+
+Thus, ξ2
+i ≥ D where D > 0 is the same constant defined in Eq. 48. A similar argument for the case
+y = 1 shows that ρi = E[|yi − ηi|3] ≤ C, where C ≥ 0 and D > 0 are constants independent of i
+
+22
+
+and d. Since the variables {yi}d
+existence of a constant C0 > 0 independent of d such that for all x ∈ R:
+
+i=1 are independent, we may apply Theorem 9, which guarantees the
+
+
+
+
+
+P
+
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+
+1
+(cid:113)(cid:80)d
+
+i=1 ξ2
+i
+
+d
+(cid:88)
+
+i=1
+
+
+
+(yi − ηi) > x | y = 2
+
+ − Q(x)
+
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+(cid:12)
+
+≤
+
+(cid:80)d
+
+C0
+(cid:16)(cid:80)d
+
+i=1 ρi
+(cid:17) 3
+
+2
+
+≤
+
+A
+√
+d
+
+.
+
+i=1 ξ2
+i
+
+Where we denoted A =
+
+C0C
+D 3
+
+2
+
+≥ 0. Now, q(2, 1), which is defined in Eq. 63, reads:
+
+q(2, 1) = P
+
+= P
+
+(cid:32) d
+
+(cid:88)
+
+i=1
+(cid:32) d
+
+(cid:88)
+
+i=1
+
+(cid:33)
+
+yi < 0 | y = 2
+
+(yi − ηi) < −
+
+(cid:33)
+
+ηi | y = 2
+
+d
+(cid:88)
+
+i=1
+
+
+
+
+
+= P
+
+1
+(cid:113)(cid:80)d
+
+
+i=1 ξ2
+i
+
+= 1 − P
+
+
+
+
+
+1
+(cid:113)(cid:80)d
+
+
+i=1 ξ2
+i
+
+= 1 −
+
+Q
+
+−
+
+d
+(cid:88)
+
+(yi − ηi) < −
+
+i=1
+
+(cid:80)d
+(cid:113)(cid:80)d
+
+i=1 ηi
+i=1 ξ2
+i
+
+
+
+
+
+| y = 2
+
+
+
+
+
+| y = 2
+
+d
+(cid:88)
+
+(yi − ηi) ≥ −
+
+i=1
+
+i=1 ηi
+i=1 ξ2
+i
+
+(cid:80)d
+(cid:113)(cid:80)d
+
+
+
+
+ + O
+
+(cid:18) 1
+√
+d
+
+(cid:19)
+
+i=1 ηi
+i=1 ξ2
+i
+
+(cid:80)d
+(cid:113)(cid:80)d
+
+
+ + O
+
+(cid:80)d
+(cid:113)(cid:80)d
+
+i=1 ηi
+i=1 ξ2
+i
+
+(cid:19)
+
+(cid:18) 1
+√
+d
+
+
+
+(cid:17)
+
+· σ2
+2N
+
+(cid:16)
+
+(cid:80)d
+
+i=1
+
+2µ2
+
+i + 1−γ
+
+γ
+
+(cid:114)
+
+(cid:80)d
+
+i=1 σ2
+
+(cid:16) 1+γ
+γ
+
+N + 1+γ2
+· σ2
+
+2γ2
+
+· σ2
+N 2 + 4µ2
+i
+
+(cid:0)1 + 1
+
+N
+
+
+
+
+
+
+
+(cid:1)(cid:17)
+
++ O
+
+(cid:19)
+
+(cid:18) 1
+√
+d
+
+(cid:114)
+
+σ2 ·
+
+(cid:16)(cid:16) 1+γ
+γ
+
+2 ∥µ∥2 + d
+
+· σ2
+
+2N · 1−γ
+γ
+(cid:17)
+
+N + 1+γ2
+· σ2
+
+2γ2
+
+· σ2
+N 2
+
+d + 4 (cid:0)1 + 1
+
+N
+
+
+
+
+
+
+
++ O
+
+(cid:19)
+
+(cid:18) 1
+√
+d
+
+(cid:1) ∥µ∥2(cid:17)
+
+∥µ∥ + d
+
+4N · 1−γ
+
+γ
+
+· σ2
+∥µ∥
+
+(cid:17)2
+
+(cid:16) σ
+∥µ∥
+
+·
+
++ 1
+
+8N 2 · 1+γ2
+
+γ2
+
+(cid:17)2(cid:19)
+
+(cid:16) σ
+∥µ∥
+
+·
+
+· d + (cid:0)1 + 1
+
+N
+
+(cid:1)
+
+
+
+
+
+
+
+
+
++ O
+
+(cid:19)
+
+(cid:18) 1
+√
+d
+
+(cid:115)(cid:18)
+
+σ ·
+
+1
+
+4N · 1+γ
+
+γ
+
+(cid:115)(cid:18)
+
+1
+
+4N · 1+γ
+
+γ
+
+(cid:16) σ
+∥µ∥
+
+·
+
+4N · 1−γ
+
+γ
+
+∥µ∥
+
+σ + d
+(cid:17)2
+
++ 1
+
+8N 2 · 1+γ2
+
+γ2
+
+· σ
+∥µ∥
+
+(cid:17)2(cid:19)
+
+(cid:16) σ
+∥µ∥
+
+·
+
+· d + (cid:0)1 + 1
+
+N
+
+(cid:1)
+
+
+
+
+
+
+
+
+
++ O
+
+(cid:19)
+
+(cid:18) 1
+√
+d
+
+(70)
+
+= Q
+
+= Q
+
+= Q
+
+= Q
+
+= Q
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+where we used the identity Q(−x) = 1 − Q(x). We now revisit Eq. 5:
+
+S =
+
+(cid:18) ∥µ∥
+σ
+
+(cid:19)2
+
+.
+
+23
+
+Thus, from Eq. 70, q(2, 1) reads:
+
+q(2, 1) = Q
+
+
+
+
+
+√
+
+S + 1
+
+γ
+
+4N · 1−γ
+8N 2 · 1+γ2
+
+· d√
+S
+S + 1
+· d
+
+γ2
+
+S + 1
+· d
+
+N + 1
+
+(cid:113) 1
+
+4N · 1+γ
+
+γ
+
+
+
+ + O
+
+(cid:19)
+
+.
+
+(cid:18) 1
+√
+d
+
+(71)
+
+To finish the proof, from Eq. 22, Eq. 62, Eq. 71, the probability of error reads:
+
+px(error) =
+
+=
+
++
+
+=
+
++
+
+1
+2
+
+1
+2
+
+1
+2
+
+1
+2
+
+1
+2
+
+· q(1, 2) +
+
+
+
+
+
+·
+
+Q
+
+
+
+
+
+
+
+·
+
+Q
+
+
+
+1
+2
+
+· q(2, 1)
+√
+
+(cid:113) 1
+
+4N · 1+γ
+√
+
+γ
+
+(cid:113) 1
+
+4N · 1+γ
+γ
+√
+
+
+
+· Q
+
+
+
+
+
+· Q
+
+
+
+(cid:113) 1
+
+4N · 1+γ
+√
+
+γ
+
+(cid:113) 1
+
+4N · 1+γ
+
+γ
+
+S + 1
+
+S + 1
+· d
+S − 1
+
+S + 1
+· d
+
+γ
+
+γ
+
+γ2
+
+· d√
+S
+S + 1
+· d
+
+4N · 1−γ
+8N 2 · 1+γ2
+4N · 1−γ
+· d√
+S
+8N 2 · 1+γ2
+S + 1
+· d
+· d√
+S
+S + 1
+· d
+
+4N · 1−γ
+8N 2 · 1+γ2
+4N · 1−γ
+· d√
+S
+8N 2 · 1+γ2
+S + 1
+· d
+
+γ2
+
+γ2
+
+γ2
+
+γ
+
+γ
+
+S + 1
+· d
+S − 1
+
+S + 1
+
+γN + 1
+
+
+N + 1
+
+
+
+
+
+
+
+ + O
+
+
+
+(cid:19)
+
+
+
+(cid:18) 1
+√
+d
+
+γN + 1
+
+
+ + O
+
+N + 1
+
+(cid:19)
+
+
+
+
+
+(cid:18) 1
+√
+d
+
+ + O
+
+(cid:19)
+
+(cid:18) 1
+√
+d
+
+S + 1
+· d
+(cid:19)
+(cid:18) 1
+√
+d
+
+= ˆp(S, N, γ, d) + O
+
+where ˆp is given in Eq. 9.
+
+A.3 PROOF OF THEOREM 3
+
+Proof. We provide an algorithm to construct A ∈ Rk×d given
+
+Later, we will show how to estimate it from unlabeled data.
+
+µ
+∥µ∥
+
+and prove that it satisfies Eq. 7.
+
+1. Define u := a1 =
+
+µ
+∥µ∥
+
+. If k = 1, define A = u⊤. Else, continue.
+
+2. Find a2, . . . , ak ∈ Rd such that ⟨ai, u⟩ = 0 and ⟨ai, aj⟩ = δij.
+
+3. Define the matrix A ∈ Rk×d where the i-th row is given by a⊤
+i .
+
+The proof that the algorithm works is given below.
+
+• Step 1: If k = 1, we define A =
+
+µ⊤
+∥µ∥
+
+. It is easy to ensure that it satisfies Eq. 7.
+
+• Step 2: If µ = 0, then the result is trivial, because we can construct on orthonormal set
+
+{a2, . . . , ak} ⊂ Rd.
+
+Otherwise, µ ̸= 0 and let us define the following subset of Rd:
+V := {x ∈ Rd : ⟨x, µ⟩ = 0} ⊂ Rd.
+
+We see that V = (span{µ})⊥ is a linear subspace of Rd of dimension d − 1. Thus, there
+exists a basis {v1, . . . , vd−1} ⊆ V . We know that k −1 ≤ d−1 and thus {v1, . . . , vk−1} ⊆
+V is a linearly independent set. That is, we can apply the Gram-Schmidt procedure on
+this set, to get an orthonormal set {a2, . . . , ak} ⊆ V . This is a subset of V because
+Gram–Schmidt outputs vectors that are linear combinations of the input, which lie in V .
+
+24
+
+• Step 3: The rows of A are orthonormal, so AA⊤ = Ik. From step 2, it follows easily that
+
+Aµ =
+
+
+
+
+
+
+
+
+
+
+
+
+
+∥µ∥
+0
+...
+0
+
+⇒ ∥Aµ∥ = ∥µ∥
+
+Thus, A meets the needed requirements, and thus we have proved the existence of such a matrix A.
+Assuming µ ̸= 0, it is now left to prove that one can learn A from infinite unlabeled data {xi}∞
+i=1.
+This data is taken from the distribution
+
+x ∼
+
+1
+2
+
+N (cid:0)−µ, σ2Id
+
+(cid:1) +
+
+N (cid:0)µ, σ2Id
+
+(cid:1)
+
+1
+2
+
+(72)
+
+where the label is called y ∈ {1, 2}. Let us assume that there is m unlabeled data. We first compute
+
+Σm =
+
+1
+m
+
+m
+(cid:88)
+
+i=1
+
+xix⊤
+i .
+
+As m → ∞, we have Σm
+
+a.s.−−→ Σ, where
+
+Σ = E (cid:2)xx⊤(cid:3) = E (cid:2)xx⊤ | y = 1(cid:3) · P (y = 1) + E (cid:2)xx⊤ | y = 2(cid:3) · P (y = 2)
+1
+2
+
+(cid:0)σ2Id + µµ⊤(cid:1) +
+
+(cid:0)σ2Id + µµ⊤(cid:1)
+
+1
+2
+
+=
+
+= σ2Id + µµ⊤
+
+where we used Eq. 72. That is, we can learn the matrix
+
+We now argue that the maximal eigenvalue of Σ is λmax = σ2 + ∥µ∥2, with eigen-space Vλmax =
+span{µ}. Indeed, from Eq. 73, it follows that:
+
+Σ = σ2Id + µµ⊤.
+
+(73)
+
+and for all v ⊥ µ we have
+
+Thus, the eigenvalues of Σ are
+
+Σµ =
+
+(cid:16)
+
+σ2 + ∥µ∥2(cid:17)
+
+µ
+
+Σv = σ2v.
+
+σ2 = λmin < λmax = σ2 + ∥µ∥2 .
+
+The eigen-space of λmin satisfies:
+
+Vλmin = (span{µ})⊥ ⇒ dim (Vλmin) = d − 1
+
+Thus, dim (Vλmax) = 1, which implies that
+
+Vλmax = span{µ}.
+
+(74)
+
+We now apply the power iteration method on the matrix Σm. For large enough number of iterations
+and sufficiently large m ≫ 1, it returns a vector that is arbitrarily close to the eigenvector of Σ that
+corresponds to the maximal eigenvalue λmax (ensured by the spectral gap of ∥µ∥2 > 0 between the
+two largest eigenvalues of Σ), which from Eq. 74, is characterized as αµ where α ̸= 0 is a constant.
+Normalizing this vector leads to ±
+. Now, we apply the algorithm we presented above to compute
+
+µ
+∥µ∥
+
+A. As a side note, using the vector a1 = −
+
+properties of A.
+
+µ⊤
+∥µ∥
+
+as the first row of A has no effect on the resulting
+
+25
+
+A.4 PROOF OF THEOREM 4
+
+Proof. We know that
+
+z = Ax,
+where A ∈ Rk×d is a deterministic matrix satisfying:
+
+• AA⊤ = Ik.
+
+• ∥Aµ∥ = ∥µ∥.
+
+It is a standard result that a linear transformation of a Gaussian vector is also a Gaussian vector, thus:
+∀j∈{1,2} z | y = j ∼ N (cid:0)Aµj, Aσ2IdA⊤(cid:1)
+
+that is, for all j ∈ {1, 2} we have:
+
+where
+
+z | y = j ∼ N (cid:0)ηj, σ2Ik
+
+(cid:1)
+
+ηj = Aµj.
+
+We know that µ2 = −µ1 = µ, and thus η2 = −η1 = η = Aµ. That is, our model assumptions still
+hold, with the following modifications:
+
+• d (cid:55)→ k.
+
+• µ (cid:55)→ η = Aµ.
+
+The new separation quality factor Sz of the new GMM (computed similarly to Eq. 5) is given by:
+
+Sz =
+
+(cid:18) ∥η2 − η1∥
+2σ
+
+(cid:19)2
+
+(cid:19)2
+
+=
+
+(cid:18) ∥η∥
+σ
+
+=
+
+(cid:18) ∥Aµ∥
+σ
+
+(cid:19)2
+
+(cid:19)2
+
+=
+
+(cid:18) ∥µ∥
+σ
+
+= S.
+
+That is, the separation quality factor remains the same after the processing. The result is now
+immediate from Theorem 2 and changing d (cid:55)→ k.
+
+A.5 PROOF OF THEOREM 5
+
+Proof. Let us fix γ = 1 and take some
+
+From Theorems 2 and 4, it follows that we need to show the following:
+
+S > 0, 1 ≤ k < d, N ∈ N.
+
+where ˆp is given in Eq. 9. It is easy to prove that:
+
+ˆp(S, N, 1, k) < ˆp(S, N, 1, d)
+
+(75)
+
+∀q∈N ˆp (S, N, 1, q) = Q
+
+
+
+
+
+Following Eq. 75, we need to show that:
+
+√
+
+S
+N + q
+
+(cid:113)(cid:0) q
+
+2S + 1(cid:1) · 1
+
+4S · 1
+
+N 2 + 1
+
+
+
+ .
+
+
+
+Q
+
+
+
+√
+
+S
+N + k
+
+(cid:113)(cid:0) k
+
+2S + 1(cid:1) · 1
+
+4S · 1
+
+N 2 + 1
+
+
+
+
+
+ < Q
+
+
+
+√
+
+S
+N + d
+
+(cid:113)(cid:0) d
+
+2S + 1(cid:1) · 1
+
+4S · 1
+
+N 2 + 1
+
+
+
+
+
+which is immediate because the argument in the Q is strictly higher in the LHS, and the Q function
+is strictly decreasing.
+
+26
+
+A.6 PROOF OF THEOREM 6
+
+Proof. Let us take some
+
+0 < γ < 1, 0 < S ≤ 1, 1 ≤ k < d, N ≥
+
+γ2 − 4γ + 1
+2γ · (1 + γ)
+
+we need to show that
+
+ˆp(S, N, γ, k) < ˆp(S, N, γ, d).
+
+That is, it is sufficient to show that the function
+
+f (x) = 2ˆp(S, N, γ, x)
+
+is strictly increasing for all x ≥ 1, where ˆp is defined in Eq. 9. It is easy to verify that:
+
+f (x) = Q
+
+
+
+
+
+
+
+√
+
+S + 1−γ
+√
+4γN
+
+· x
+
+S
+(cid:17)
+
+(cid:114)(cid:16) 1+γ
+
+4γN S + 1+γ2
+
+8γ2N 2S
+
+· x + 1
+
+γN + 1
+
+
+
+
+
+
+
+
+
+
+
+
+
++ Q
+
+√
+
+S − 1−γ
+√
+4γN
+
+(cid:114)(cid:16) 1+γ
+
+4γN S + 1+γ2
+
+8γ2N 2S
+
+
+
+
+
+
+
+.
+
+· x
+
+· x + 1
+
+N + 1
+
+S
+(cid:17)
+
+Let us define the following functions:
+
+√
+
+and
+
+g1(x) =
+
+g2(x) =
+
+S + 1−γ
+√
+4γN
+
+· x
+
+S
+(cid:17)
+
+(cid:114)(cid:16) 1+γ
+
+4γN S + 1+γ2
+
+8γ2N 2S
+
+· x + 1
+
+γN + 1
+
+√
+
+S − 1−γ
+√
+4γN
+
+(cid:114)(cid:16) 1+γ
+
+4γN S + 1+γ2
+
+8γ2N 2S
+
+S
+(cid:17)
+
+· x
+
+.
+
+· x + 1
+
+N + 1
+
+Thus, Eq. 76 reads:
+
+f (x) = Q (g1(x)) + Q (g2(x)) .
+
+From the chain rule, the derivative reads:
+
+f ′(x) = Q′ (g1(x)) · g′
+
+1(x) + Q′ (g2(x)) · g′
+(cid:18)
+
+(cid:19)
+
+2(x)
+
+(cid:18)
+
+·
+
+exp
+
+−
+
+· g2
+
+1(x)
+
+· g′
+
+1(x) + exp
+
+1
+2
+
+· (w1(x) · g′
+
+1(x) + w2(x) · g′
+
+2(x)) .
+
+= −
+
+= −
+
+1
+√
+2π
+1
+√
+2π
+
+(cid:18)
+
+−
+
+1
+2
+
+(cid:19)
+
+· g2
+
+2(x)
+
+(cid:19)
+
+· g′
+
+2(x)
+
+We used the following property of the Q function:
+
+and the following notation:
+
+d
+dx
+
+Q(x) = −
+
+1
+√
+2π
+
+(cid:18)
+
+· exp
+
+−
+
+(cid:19)
+
+x2
+2
+
+(cid:18)
+
+wi(x) = exp
+
+−
+
+(cid:19)
+
+.
+
+· g2
+
+i (x)
+
+1
+2
+
+(76)
+
+(77)
+
+(78)
+
+(79)
+
+(80)
+
+(81)
+
+Thus, showing that f is strictly increasing for all x ≥ 1 is equivalent to proving that for all x ≥ 1
+
+f ′(x) > 0 ⇔ w1(x) · g′
+
+1(x) + w2(x) · g′
+
+2(x) < 0.
+
+We argue now that for all x ≥ 1:
+
+1.
+
+2.
+
+w1(x) < w2(x)
+
+g′
+2(x) < 0
+
+27
+
+(82)
+
+(83)
+
+(84)
+
+3.
+
+1(x) + g′
+g′
+
+2(x) ≤ 0
+
+(85)
+
+Let us first prove Eq. 83: From Eq. 81 it follows that it is sufficient to prove:
+
+∀x≥1 |g1(x)| > |g2(x)| .
+(86)
+Let us take some x ≥ 1. It is easy to see from Eq. 77 that g1(x) ≥ 0 and thus |g1(x)| = g1(x). That
+is, it is sufficient to prove that
+
+and
+
+Let us now define the following parameters:
+
+g2(x) > −g1(x) ⇔ g1(x) + g2(x) > 0.
+
+g1(x) > g2(x)
+
+
+
+
+
+
+B =
+
+C =
+
+c1 =
+
+c2 =
+
+S
+
++
+
+1 − γ
+√
+
+4γN
+1 + γ
+4γN S
+1
+γN
+1
+N
+
++ 1
+
++ 1 < c1
+
+1 + γ2
+8γ2N 2S
+
+We also define the following functions:
+
+(cid:40)
+
+D1(x) =
+D2(x) =
+
+(cid:112)
+(cid:112)
+
+Cx + c1
+Cx + c2 < D1(x)
+
+From Eq. 77, Eq. 78, Eq. 89, Eq. 90, it follows that:
+√
+
+
+
+
+g1(x) =
+
+
+
+g2(x) =
+
+√
+
+S + Bx
+D1(x)
+S − Bx
+D2(x)
+
+We first prove Eq. 87. Their difference g1(x) − g2(x) reads:
+
+g1(x) − g2(x) =
+
+=
+
+√
+
+√
+
+√
+
+√
+(
+
+−
+
+S + Bx) · D2(x) − (
+
+S − Bx
+D2(x)
+
+S + Bx
+D1(x)
+S · (D2(x) − D1(x)) + Bx · (D2(x) + D1(x))
+D1(x) · D2(x)
+
+=
+
+.
+
+D1(x) · D2(x)
+
+√
+
+S − Bx) · D1(x)
+
+Now, from Eq. 89, Eq. 90, we have:
+
+(87)
+
+(88)
+
+(89)
+
+(90)
+
+(91)
+
+(92)
+
+=
+
+D2(x) − D1(x) =
+
+c2 − c1
+D2(x) + D1(x)
+
+2(x) − D2
+D2
+1(x)
+D2(x) + D1(x)
+N − 1
+D1(x) + D2(x)
+1 − γ
+γ
+In order to show Eq. 87, it is sufficient to show that the expression in Eq. 92 is strictly positive.
+Substituting Eq. 93, we get:
+√
+
+1
+D2(x) + D1(x)
+
+1
+N
+
+= −
+
+(93)
+
+γ·N
+
+=
+
+1
+
+·
+
+.
+
+·
+
+S
+N
+
+−
+
+(cid:124)
+
+·
+
+√
+
+·
+
+1 − γ
+γ
+
+1
+D2(x) + D1(x)
+(cid:125)
+(cid:123)(cid:122)
+S · (D2(x) − D1(x))
+
++
+
+1 − γ
+4γ · N ·
+
+√
+
+· x · (D2(x) + D1(x)) > 0
+
+S
+
+1
+√
+
+4
+
+S
+
+· x · (D2(x) + D1(x)) >
+
+√
+
+S
+D2(x) + D1(x)
+
+x · (D2(x) + D1(x))2 > 4S
+
+28
+
+That is, in order to show Eq. 83, it is sufficient to show that:
+
+h(x) := x · (D2(x) + D1(x))2 > 4S.
+
+We now show that h(x) is strictly increasing:
+
+h′(x) = (D2(x) + D1(x))2 + 2x · (D2(x) + D1(x)) > 0.
+
+Thus, it follows that:
+
+Now, from Eq. 94, it follows that:
+
+x ≥ 1 ⇒ h(x) > h(1).
+
+h(1) = (D2(1) + D1(1))2 > 4S ⇔ D2(1) + D1(1) > 2
+
+S.
+
+√
+
+Indeed, from Eq. 89, Eq. 90, we have:
+
+D2(1) + D1(1) > 2 · D2(1) = 2 ·
+
+(cid:112)
+
+C + c2
+
+(cid:114)
+
+= 2 ·
+
+C +
+
+1
+N
+
++ 1
+
+> 2
+
+√
+
+≥ 2
+
+S
+
+(94)
+
+(95)
+
+where we used the assumption that S ≤ 1, and C > 0. That is, we proved Eq. 87. We will now prove
+Eq. 88. From Eq. 91, the sum g1(x) + g2(x) reads:
+
+√
+
+√
+
+g1(x) + g2(x) =
+
+=
+
+√
+
+(cid:16)√
+
+(cid:17)
+
+S + Bx
+
+· D2(x) +
+
+(cid:16)√
+
+(cid:17)
+
+S − Bx
+
+· D1(x)
+
++
+
+S − Bx
+D2(x)
+
+S + B · x
+D1(x)
+S · (D2(x) + D1(x)) + Bx · (D2(x) − D1(x))
+D1(x) · D2(x)
+
+=
+
+.
+
+D1(x) · D2(x)
+
+(96)
+In order to show Eq. 88, it is sufficient to show that the expression in Eq. 96 is strictly positive.
+Substituting Eq. 93, we get:
+
+√
+
+S · (D2(x) + D1(x)) +
+
+−
+
+(cid:18)
+
+1 − γ
+4γ · N ·
+
+√
+
+(cid:124)
+
+√
+
+S · (D2(x) + D1(x)) >
+
+S
+
+x
+D2(x) + D1(x)
+
+·
+
+·
+
+·
+
+1
+N
+
+1 − γ
+γ
+(cid:123)(cid:122)
+Bx · (D2(x) − D1(x))
+x
+D2(x) + D1(x)
+
+·
+
+(1 − γ)2
+√
+4γ2N 2
+S
+(1 − γ)2
+4γ2N 2S
+
+>
+
+(D2(x) + D1(x))2
+x
+
+That is, in order to show Eq. 88, it is sufficient to show that:
+
+p(x) :=
+
+(D2(x) + D1(x))2
+x
+
+>
+
+(1 − γ)2
+4γ2N 2S
+
+.
+
+Indeed,
+
+p(x) =
+
+D2
+
+2(x) + 2D2(x)D1(x) + D2
+x
+
+1(x)
+
+≥
+
+=
+
+D2
+
+2(x) + D2
+x
+
+1(x)
+
+Cx + c1 + Cx + c2
+x
+c1 + c2
+x
+
+= 2C +
+
+1 + γ2
+4γ2N 2S
+
+> 2C
+
+=
+
+>
+
+>
+
++
+
+1 + γ
+2γN S
+1 + γ2
+4γ2N 2S
+(1 − γ)2
+4γ2N 2S
+
+29
+
+> 0
+
+(cid:19)
+
+(cid:125)
+
+(97)
+
+(98)
+
+where we used c1, c2 > 0 and (1 − γ)2 < 1 + γ2 for all γ > 0. That is, we proved Eq. 88 and
+thus we showed that Eq. 83 is satisfied. We will now prove Eq. 84: Let us first define the following
+parametric function
+
+TB,C,D(x) =
+
+.
+
+(99)
+
+√
+√
+
+S + Bx
+Cx + D
+
+(cid:16)√
+
+·
+
+(cid:17)
+
+S + Bx
+
+Its derivative reads:
+
+√
+
+B ·
+
+T ′
+B,C,D(x) =
+
+2B · (Cx + D) − C · (
+
+S + Bx)
+
+(100)
+
+Cx + D −
+
+√
+
+C
+Cx+D
+
+2·
+Cx + D
+√
+
+=
+
+=
+
+2 · (Cx + D)1.5
+
+√
+
+BC · x + 2 · BD −
+2 · (Cx + D)1.5
+
+SC
+
+.
+
+Now, from Eq. 78, Eq. 99, it follows that:
+
+g2(x) = T−B,C,c2 (x).
+
+That is, from Eq. 100, we have:
+
+g′
+2(x) =
+
+−BC · x − 2B · c2 −
+2 · (Cx + c2)1.5
+
+√
+
+S · C
+
+= −
+
+BC · x + 2B · c2 +
+
+√
+
+S · C
+
+2 · (Cx + c2)1.5
+
+< 0
+
+(101)
+
+where we used B, C, c2 > 0, which follows from Eq. 89, and S > 0. Finally, we will prove Eq. 85:
+From Eq. 77, Eq. 99, Eq. 100, it follows that:
+
+g1(x) = TB,C,c1 (x) ⇒ g′
+
+1(x) =
+
+√
+
+BC · x + 2B · c1 −
+
+2 · (Cx + c1)1.5
+
+S · C
+
+.
+
+(102)
+
+Thus, from Eq. 101,Eq. 102, proving that g′
+
+BC · x + 2B · c1 −
+
+2 · (Cx + c1)1.5
+
+≤
+
+√
+
+1(x) + g′
+S · C
+
+2(x) ≤ 0 is equivalent to proving that:
+BC · x + 2B · c2 +
+
+S · C
+
+√
+
+2 · (Cx + c2)1.5
+
+.
+
+From Eq. 89, and the assumption of 0 < γ < 1, we know that c1 > c2. Thus, if the numerator in the
+LHS is negative, then the inequality holds trivially. Otherwise, it is sufficient to prove that:
+
+√
+
+2B · c1 −
+
+S · C ≤ 2B · c2 +
+
+S · C
+
+√
+
+√
+
+2B · (c1 − c2) ≤ 2
+
+B ·
+
+(cid:18) 1
+
+γ · N
+
+(cid:19)
+
+≤
+
+−
+
+1
+N
+
+S · C
+√
+
+S · C
+
+(103)
+
+(cid:17)
+
+(cid:16) 1+γ
+
+4 + 1+γ2
+(cid:0) 1−γ
+4
+
+8·γ·N
+(cid:1)
+
+Thus, we need to prove that:
+
+·
+
+1
+N
+From Eq. 89, the RHS in Eq. 103 reads:
+(cid:16) 1+γ
+√
+S
+4·γ·N ·
+(cid:16) 1−γ
+√
+4·γ·N ·
+
+S · C
+B
+
+1 − γ
+γ
+
+√
+
+=
+
+√
+
+≤
+
+S · C
+B
+
+.
+
++ 1+γ2
+8·γ2·N 2·
+(cid:17)
+
+√
+
+(cid:17)
+
+S
+
+=
+
+=
+
+=
+
+=
+
+=
+
+·
+
+(cid:19)
+
++
+
+S
+1 + γ2
+8 · γ · N
+1 + γ2
+γ · (1 − γ)
+
+(cid:18) 1 + γ
+4
+1 + γ
+1 − γ
+2N · γ(1 + γ) + 1 + γ2
+2N · γ(1 − γ)
+
++
+
+·
+
+4
+1 − γ
+1
+2 · N
+
+(2N + 1) · γ2 + 2N · γ + 1
+2N · γ(1 − γ)
+
+.
+
+30
+
+Thus, Eq. 103 reads:
+
+1 − γ
+γ · N
+
+≤
+
+(2N + 1) · γ2 + 2N · γ + 1
+2N · γ(1 − γ)
+
+2 · (1 − γ)2 ≤ (2N + 1) · γ2 + 2N · γ + 1
+2 · (γ2 − 2γ + 1) ≤ (2N + 1) · γ2 + 2N · γ + 1
+(2N − 1) · γ2 + 2 · (N + 2) · γ − 1 ≥ 0
+2 · γ · (γ + 1) · N − (γ2 − 4γ + 1) ≥ 0
+
+N ≥
+
+γ2 − 4γ + 1
+2γ(1 + γ)
+
+Which holds from the theorem assumptions. Finally, let us take some x ≥ 1. We need to prove that:
+
+w1(x) · g′
+
+1(x) + w2(x) · g′
+
+2(x) < 0 ⇔ w1(x) · g′
+
+1(x) < −w2(x) · g′
+
+2(x)
+
+⇔ g′
+
+1(x) < −
+
+w2(x)
+w1(x)
+
+· g′
+
+2(x).
+
+Indeed, from Eq. 83, Eq. 101, Eq. 85, it follows that:
+
+1(x) ≤ −g′
+g′
+
+2(x) <
+
+w2(x)
+w1(x)
+
+· (−g′
+
+2(x)) = −
+
+w2(x)
+w1(x)
+
+· g′
+
+2(x).
+
+Which finishes the proof. Note that for γ ≥ 0.162, the requirement N ≥ γ2−4γ+1
+N ≥ 1), so it only matters under severe imbalance (γ < 0.162).
+
+2γ(1+γ) is vacuous (since
+
+A.7 PROOF OF THEOREM 7
+
+In order to have a fair comparison between cases with different values of γ, we fix the total number
+of samples to be NT . Thus, we take N1 = xNT samples from the first class and N2 = γ · xNT from
+the second class such that:
+
+N1 + N2 = xNT + γ · xNT = NT ⇒ x =
+
+1
+1 + γ
+
+Meaning, the number of samples in the first class is
+
+N =
+
+NT
+1 + γ
+
+.
+
+Proof. Let us take some NT ∈ N and
+
+S > 0, 1 ≤ k < d, 0 < γ ≤ 1.
+
+Let us define the following parametric function:
+
+fs,a,q(x) :=
+
+√
+
+S + s · (1−γ)·q
+S
+
+4γ·
+
+√
+
+· 1
+x
+
+=
+
+(cid:114)(cid:16) (1+γ)·q
+
+(cid:17)
+
+4γ·S + 1
+
+a
+
+x + (1+γ2)·q
+· 1
+
+8γ2·S · 1
+
+x2 + 1
+
+where the parameters B, C, D are:
+
+
+
+
+
+
+B = s ·
+
+C =
+
+D =
+
+S
+
+√
+
+(1 − γ) · q
+4γ ·
+(1 + γ) · q
+4γ · S
+(1 + γ2) · q
+8γ2 · S
+
++
+
+1
+a
+
+31
+
+√
+
+S + B
+x
+x2 + 1
+
+x + D
+
+(cid:113) C
+
+(104)
+
+(105)
+
+(106)
+
+From Definition 13 and Eq. 9, it follows that:
+ˆpz(error)
+ˆpx(error)
+Q (f1,γ,k(N )) + Q (f−1,1,k(N ))
+Q (f1,γ,d(N )) + Q (f−1,1,d(N ))
+
+η = 100 ·
+
+= 100 ·
+
+= 100 ·
+
+1 −
+
+1 −
+
+1 −
+
+(cid:18)
+
+(cid:18)
+
+(cid:18)
+
+(cid:19)
+
+ˆp(S, N, γ, k)
+ˆp(S, N, γ, d)
+(cid:19)
+
+(cid:19)
+
+where we defined the following function:
+
+= 100 · h(N )
+
+h(x) := 1 −
+
+Q (f1,γ,k(x)) + Q (f−1,1,k(x))
+Q (f1,γ,d(x)) + Q (f−1,1,d(x))
+
+.
+
+Now, let us define the following parametric function:
+
+gs,a,q(x) := fs,a,q
+
+(cid:19)
+
+(cid:18) 1
+x
+
+=
+
+√
+
+√
+
+S + B · x
+D · x2 + C · x + 1
+
+where we used Eq. 105, Eq. 106. Let us also define:
+
+ℓ(x) := h
+
+(cid:19)
+
+(cid:18) 1
+x
+
+= 1 −
+
+Q (g1,γ,k(x)) + Q (g−1,1,k(x))
+Q (g1,γ,d(x)) + Q (g−1,1,d(x))
+
+where we used Eq. 109, Eq. 108. Thus, Taylor expansion to first order of ℓ yields:
+
+ℓ(x) = ℓ(0) + ℓ′(0) · x + O (cid:0)x2(cid:1)
+
+Where the approximation is exact for x ≪ 1. Thus, the following is exact for x ≫ 1:
+(cid:18) 1
+x
+
+x ≫ 1 ⇒ h(x) = ℓ
+
+(cid:18) 1
+x2
+
+ℓ′(0)
+x
+
+= ℓ(0) +
+
++ O
+
+(cid:19)
+
+(cid:19)
+
+.
+
+Assuming:
+
+N =
+
+NT
+1 + γ
+
+≫ 1 ⇔ NT ≫ 1 + γ
+
+means that following first-order approximation is exact:
+
+h (N ) = ℓ(0) +
+
+ℓ′(0)
+N
+
++ O
+
+(cid:18) 1
+N 2
+
+(cid:19)
+
+.
+
+Let us first compute ℓ(0):
+
+ℓ(0) = 1 −
+
+Q (g1,γ,k(0)) + Q (g−1,1,k(0))
+Q (g1,γ,d(0)) + Q (g−1,1,d(0))
+
+= 1 −
+
+2 · Q(
+2 · Q(
+s,a,q(0). From Eq. 109 it follows that:
+
+S)
+S)
+
+= 0.
+
+√
+√
+
+Finally, we will compute ℓ′(0): We first compute g′
+
+√
+
+B ·
+
+g′
+s,a,q(x) =
+
+D · x2 + C · x + 1 −
+
+√
+
+2D·x+C
+D·x2+C·x+1
+
+·
+
+2·
+D · x2 + C · x + 1
+
+(cid:16)√
+
+(cid:17)
+
+S + B · x
+
+(cid:16)√
+
+(cid:17)
+
+S + B · x
+
+2B · (cid:0)D · x2 + C · x + 1(cid:1) − (2D · x + C) ·
+2 · (D · x2 + C · x + 1)1.5
+√
+
+(BC − 2SD) · x + (2B − C
+2 · (D · x2 + C · x + 1)1.5
+
+S)
+
+.
+
+=
+
+=
+
+Thus, the derivative at 0 is:
+
+g′
+s,a,q(0) =
+
+=
+
+=
+
+=
+
+=
+
+= B −
+
+√
+
+S
+
+· C
+
+1
+2
+(cid:18) (1 + γ) · q
+4γ · S
+
+1
+2
+
+·
+
+(cid:19)
+
+√
+
+S
+
+·
+
++
+
+1
+a
+
+2B − C
+
+√
+
+S
+
+2
+s · (1 − γ) · q
+4γ · S
+
+s · (1 − γ) · q
+4γ · S
+
+−
+
+−
+
+(1 + γ) · q
+8γ ·
+
+√
+
+S
+
+2s · (1 − γ) · q − (1 + γ) · q
+8γ · S
+
+((2s − 1) − (2s + 1) · γ) · q
+
+√
+
+8γ ·
+
+S
+
+32
+
+√
+
+S
+2a
+√
+
+S
+2a
+√
+
+S
+2a
+
+−
+
+−
+
+−
+
+.
+
+(107)
+
+(108)
+
+(109)
+
+(110)
+
+(111)
+
+(112)
+
+(113)
+
+(114)
+
+(115)
+
+Now, from Eq. 110, the derivative ℓ′(x) reads
+
+ℓ′(x) = −
+
+= −
+
+= −
+
+(cid:19)
+
+(cid:18) Q (g1,γ,k(x)) + Q (g−1,1,k(x))
+Q (g1,γ,d(x)) + Q (g−1,1,d(x))
+
+(cid:19)
+
+d
+dx
+d
+dx
+u′(x) · v(x) − v′(x) · u(x)
+v2(x)
+
+(cid:18) u(x)
+v(x)
+
+=
+
+v′(x) · u(x) − u′(x) · v(x)
+v2(x)
+
+where we defined the following auxiliary functions:
+
+(cid:26)u(x) = Q (g1,γ,k(x)) + Q (g−1,1,k(x))
+v(x) = Q (g1,γ,d(x)) + Q (g−1,1,d(x))
+
+From the chain rule, their derivatives are:
+
+(cid:26)u′(x) = g′
+v′(x) = g′
+
+1,γ,k(x) · Q′ (g1,γ,k(x)) + g′
+1,γ,d(x) · Q′ (g1,γ,d(x)) + g′
+
+−1,1,k(x) · Q′ (g−1,1,k(x))
+−1,1,d(x) · Q′ (g−1,1,d(x))
+
+Now, from Eq. 116, Eq. 118 it follows that:
+
+ℓ′(0) =
+
+v′(0) · u(0) − u′(0) · v(0)
+v(0)2
+
+.
+
+(116)
+
+(117)
+
+(118)
+
+(119)
+
+√
+
+S. Thus, from Eq. 117, Eq. 118, Eq. 115, we have
+
+It is easy to verify from Eq. 109 that gs,a,q(0) =
+the following formulas:
+√
+√
+
+
+
+u(0) = 2 · Q(
+v(0) = 2 · Q(
+
+
+
+
+u′(0) =
+
+v′(0) =
+
+(cid:32)
+
+(cid:32)
+
+S)
+S)
+(1 − 3γ) · k
+
+√
+
+8γ ·
+
+S
+
+(1 − 3γ) · d
+
+√
+
+8γ ·
+
+S
+
+√
+
+S
+2γ
+√
+
+S
+2γ
+
+−
+
+−
+
+(cid:33)
+
+(cid:33)
+
+√
+
+· Q′(
+
+S) +
+
+√
+
+· Q′(
+
+S) +
+
+(cid:32)
+
+(cid:32)
+
+−(3 + γ) · k
+
+√
+
+8γ ·
+
+S
+
+−(3 + γ) · d
+
+√
+
+8γ ·
+
+S
+
+√
+
+S
+2
+√
+
+S
+2
+
+−
+
+−
+
+(cid:33)
+
+(cid:33)
+
+√
+
+S)
+
+· Q′(
+
+√
+
+· Q′(
+
+S)
+
+(120)
+
+Now, we substitute Eq. 120 in Eq. 119, to get the following formula for ℓ′(0):
+
+√
+
+S) ·
+
+2 · Q(
+
+(cid:16)(cid:16) (1−3γ)·d
+S
+8γ·
+
+√
+
+(cid:17)
+
+√
+
+S
+2γ
+
+−
+
+· Q′(
+
+√
+
+(cid:16) −(3+γ)·d
+8γ·
+
+√
+
+S
+
+(cid:17)
+
+√
+
+S
+2
+
+−
+
+√
+
+· Q′(
+
+(cid:17)
+
+S)
+
+√
+
+2Q(
+
+S) ·
+
+(cid:16)(cid:16) (1−3γ)·k
+S
+8γ·
+
+√
+
+(cid:17)
+
+√
+
+S
+2γ
+
+−
+
+(cid:16) −(3+γ)·k
+8γ·
+
+√
+
+S
+
+S) +
+√
+
+S)
+
+4 · Q2(
+√
+
+· Q′(
+
+4 · Q2(
+
+S) +
+√
+
+S)
+
+(cid:17)
+
+√
+
+S
+2
+
+−
+
+√
+
+(cid:17)
+
+S)
+
+· Q′(
+
+(cid:19)
+
+(cid:18) (1 − 3γ) · (d − k)
+8γ ·
+
+√
+
+·
+
+(3 + γ) · (d − k)
+
+√
+
+8γ ·
+
+S
+
+(121)
+
+ℓ′(0) =
+
+−
+
+=
+
+=
+
+√
+S)
+√
+S)
+
+Q′(
+2 · Q(
+√
+Q′(
+S)
+√
+2 · Q(
+S)
+Q′(
+
+S)
+
+√
+
+= −
+
+· (d − k) ·
+
+· (d − k) ·
+
+Q(S)
+√
+Q′(
+S · Q(
+
+S)
+√
+
+S)
+
+= −
+
+√
+
+· (d − k) ·
+
+−
+
+(cid:19)
+
+√
+
+S
+(cid:18) −2 − 4γ
+S
+8γ ·
+(cid:18) 1 + 2γ
+√
+S
+8γ ·
+(cid:18) 1
+8γ
+
+(cid:19)
+
++
+
+(cid:19)
+
+.
+
+1
+4
+
+33
+
+Finally, from Eq. 107, Eq. 112, Eq. 113, Eq. 114, Eq. 121, it follows that:
+
+η = 100 · h(N )
+
+(cid:18)
+
+= 100 ·
+
+ℓ(0) +
+
+= 100 ·
+
+= −
+
+ℓ′(0)
+N
+100 · Q′(
+√
+S · Q(
+
++ O
+√
+√
+
+S)
+S)
+
++ O
+
+(cid:19)(cid:19)
+
+(cid:18) 1
+N 2
+
+ℓ′(0)
+N
+(cid:18) 1
+N 2
+
+· (d − k) ·
+
+(cid:18) 1
+8γ
+
++
+
+(cid:19)
+
+1
+4
+
+·
+
+1
+N
+
++ O
+
+(cid:19)
+
+(cid:18) 1
+N 2
+
+(cid:19)
+
+(122)
+
+We proceed with Eq. 122 and substitute Eq. 112:
+
+N =
+
+NT
+1 + γ
+
+to get the following approximation for η:
+
+η = −100 ·
+
+√
+
+= −50 ·
+
+√
+
+= −50 ·
+
+√
+
+√
+
+S)
+√
+
+Q′(
+S · Q(
+√
+Q′(
+S · Q(
+√
+Q′(
+S · Q(
+√
+S)
+√
+S)
+
+S)
+√
+
+= −
+
+= −
+
+50 · Q′(
+√
+SQ(
+4 ·
+√
+25 · Q′(
+S)
+√
+√
+S)
+SQ(
+2 ·
+(cid:1)
+exp (cid:0)− S
+2
+(cid:16)√
+
+√
+
+·
+
+S · Q
+
+S
+
+=
+
+25
+√
+2
+
+2π
+
+(cid:19)
+
+1
+4
+(cid:19)
+
+S)
+√
+
+S)
+
+· (d − k) ·
+
+(cid:18) 1
+8γ
+
++
+
+· (d − k) ·
+
+· (d − k) ·
+
+S)
+
+S)
+
++
+
+(cid:18) 1
+1
+2
+4γ
+(cid:18) 1 + 2γ
+(cid:19)
+4γ
+
+· (1 + γ) ·
+
+1
+NT
+
++ O
+
+(cid:19)
+
+(cid:18) 1
+N 2
+T
+(cid:19)
+
+· (1 + γ) ·
+
+· (1 + γ) ·
+
+1
+NT
+
+1
+NT
+
++ O
+
++ O
+
+(cid:18) 1
+N 2
+T
+(cid:18) 1
+N 2
+T
+(cid:19)
+
+(cid:19)
+
+(123)
+
+· (d − k) · (1 + 2γ) ·
+
+(cid:18)
+
+· (d − k) ·
+
+3 + 2γ +
+
+(cid:18)
+
+1 +
+
+(cid:19)
+
+1
+γ
+
+·
+
+1
+NT
+
++ O
+
+(cid:19)
+
+·
+
+1
+NT
+
++ O
+
+(cid:18) 1
+N 2
+T
+
+(cid:18) 1
+N 2
+T
+(cid:19)
+
+1
+γ
+(cid:19)
+
+(cid:18)
+
+(cid:17) ·
+
+3 + 2γ +
+
+1
+γ
+
+· (d − k) ·
+
+1
+NT
+
++ O
+
+(cid:19)
+
+(cid:18) 1
+N 2
+T
+
+where we used the following property of the Q function:
+
+Q′(x) = −
+
+1
+√
+2π
+
+(cid:18)
+
+· exp
+
+−
+
+(cid:19)
+
+.
+
+x2
+2
+
+It is now left to show the conclusions. For NT ≫ 1, we have from Eq. 123 that
+
+η = C · f (S) · g(γ) · (d − k) ·
+
+1
+NT
+
+where C =
+
+25
+√
+2
+
+2π
+
+> 0, and
+
+
+
+
+
+
+f (S) =
+
+(cid:1)
+
+exp (cid:0)− S
+2
+√
+√
+S · Q(
+
+g(γ) = 3 + 2γ +
+
+S)
+1
+γ
+
+(124)
+
+(125)
+
+It is now clear from Eq. 124 that as d − k increases, the efficiency increases (linearly), and as NT
+increases, the efficiency decreases. It is easy to see that in (0, 1], the function g defined in Eq. 125
+
+achieves a minimum at γ =
+
+1
+√
+2
+
+:
+
+It is easy to check that
+
+g′(γ) = 2 −
+
+1
+γ2 = 0 ⇒ γ = ±
+
+1
+√
+2
+
+.
+
+(cid:19)
+
+g
+
+(cid:18) 1
+√
+2
+
+< lim
+x→0+
+
+g(x) = ∞, g
+
+(cid:19)
+
+(cid:18) 1
+√
+2
+
+< g(1).
+
+34
+
+Thus, from Eq. 124, in the range
+
+0,
+
+(cid:18)
+
+(cid:21)
+
+, as γ decreases, the efficiency increases. Finally, we will
+
+1
+√
+2
+
+prove that the function f , defined in Eq. 125, decreases as S increases, and thus from Eq. 124, the
+efficiency decreases as S increases: It is now sufficient to prove the following:
+
+− 1
+
+2 exp (cid:0)− S
+
+2
+
+√
+
+(cid:1) ·
+
+SQ
+
+(cid:16)√
+
+(cid:17)
+
+S
+
+(cid:16)√
+
+(cid:16)√
+
+(cid:17)(cid:17)
+
+S
+
+SQ
+
+· exp (cid:0)− S
+
+2
+
+(cid:1)
+
+< 0
+
+f ′(S) =
+
+SQ2
+
+− d
+dS
+(cid:16)√
+
+(cid:17)
+
+S
+(cid:16)√
+
+d
+dS
+(cid:16)√
+
+SQ
+
+√
+
+(cid:17)
+
+S
+
++
+
+−
+
+S · Q
+
+(cid:16)√
+
+(cid:17)
+
+S
+
+−
+
+√
+
+1
+2
+(cid:16)√
+
+√
+
+−
+
+1
+2
+
+SQ
+
+(cid:17)
+
+S
+
+<
+
+√
+
+−
+
+SQ
+
+(cid:16)√
+
+(cid:17)
+
+S
+
+<
+
+(cid:16)√
+
+(cid:17)
+
+S
+
+−
+
+1
+√
+2
+
+Q
+
+S
+1
+√
+S
+(cid:16)√
+
+Q
+
+Q
+
+(cid:19)
+
+>
+
+1
+√
+2π
+
+·
+
+(cid:18)√
+
+S +
+
+(cid:16)√
+
+Q
+
+1
+√
+S
+(cid:17)
+
+S
+
+(cid:17)
+
+S
+
+>
+√
+
+1
+√
+2π
+
+exp
+
+(cid:18)
+
+· exp
+
+−
+
+S
+S + 1
+(cid:18)
+
+−
+
+S
+2
+(cid:19)
+
+S
+2
+
+< 0
+
+(cid:16)√
+
+(cid:17)(cid:17)
+
+S
+S · Q′ (cid:16)√
+(cid:18)
+
+1
+√
+2π
+
+exp
+
+(cid:18)
+
+−
+
+S
+2
+(cid:19)
+
+S
+
+(cid:17) 1
+√
+2
+(cid:19)
+
+S
+
+Where we used the identity Q′(S) = −
+
+is equivalent to the following inequality
+
+1
+√
+2π
+(cid:16)
+x =
+
+· exp
+√
+
+S
+
+−
+
+(cid:17)
+
+:
+
+S 2
+2
+
+(cid:19)
+
+. Let us now prove the final inequality. It
+
+∀x≥0 Q(x) >
+
+1
+√
+2π
+
+·
+
+x
+x2 + 1
+
+(cid:18)
+
+· exp
+
+−
+
+(cid:19)
+
+x2
+2
+
+=
+
+x
+x2 + 1
+
+· ϕ(x)
+
+where we defined the following function:
+
+ϕ(x) =
+
+1
+√
+2π
+
+(cid:18)
+
+· exp
+
+−
+
+(cid:19)
+
+.
+
+x2
+2
+
+Indeed, for all x ≥ 0:
+
+(cid:18)
+
+1 +
+
+(cid:19)
+
+1
+x2
+
+· Q(x) =
+
+>
+
+(cid:90) ∞
+
+x
+(cid:90) ∞
+
+(cid:18)
+
+1 +
+
+(cid:18)
+
+1 +
+
+(cid:19)
+
+(cid:19)
+
+1
+x2
+1
+u2
+
+· ϕ(u) du
+
+· ϕ(u) du
+
+(cid:21)∞
+
+x
+
+x
+(cid:20) ϕ(u)
+u
+
+= −
+
+=
+
+ϕ(x)
+x
+
+(126)
+
+(127)
+
+(128)
+
+where we used the following identity:
+
+d
+du
+
+(cid:18)
+
+−
+
+ϕ(u)
+u
+
+(cid:19)
+
+= −
+
+ϕ′(u) · u − ϕ(u)
+u2
+
+=
+
+ϕ(u) + u2 · ϕ(u)
+u2
+
+(cid:18)
+
+=
+
+1 +
+
+(cid:19)
+
+1
+u2
+
+· ϕ(u).
+
+(129)
+
+And Eq. 129 follows from the identity ϕ′(u) = −u · ϕ(u) which is straightforward from the definition
+of ϕ in Eq. 127. Now, from Eq. 128, it follows that:
+x2
+x2 + 1
+which proves exactly Eq. 126. It is left to show that:
+
+x
+x2 + 1
+
+ϕ(x)
+x
+
+Q(x) >
+
+· ϕ(x)
+
+=
+
+·
+
+∃N0∈N∀N ≥N0 pz(error) < px(error).
+
+That is, η > 0. We proved in Eq. 119 that:
+√
+
+ℓ′(0) = −
+
+√
+
+Q′(
+S · Q(
+
+S)
+√
+
+S)
+
+· (d − k) ·
+
+(cid:18) 1
+8γ
+
++
+
+(cid:19)
+
+1
+4
+
+> 0.
+
+35
+
+(130)
+
+(131)
+
+We defined ℓ(x) in Eq. 111 as:
+
+ℓ(x) = h
+
+(cid:19)
+
+(cid:18) 1
+x
+
+⇒ ℓ′(x) = −
+
+(cid:19)
+
+1
+x2 · h′
+
+(cid:18) 1
+x
+
+(132)
+
+where we used the chain rule. Finally, from Eq. 131, Eq. 132, it follows that:
+
+ℓ′(0) = − lim
+x→0+
+
+(cid:19)
+
+1
+x2 · h′
+
+(cid:18) 1
+x
+
+= − lim
+t→∞
+
+t2 · h′ (t) > 0
+
+where we used the fact that if the two-sided limit exists, then each one-sided limit exists and they are
+equal to the limit. In total,
+
+t2 · h′(t) < 0.
+
+lim
+t→∞
+
+This means that for large enough t, we have
+
+h′(t) < 0
+
+which implies that h is strictly decreasing. Thus, from Eq. 107, we have that for N ≫ 1, η is
+decreasing. In addition, from Eq. 111, Eq. 114, it follows that:
+
+lim
+N→∞
+
+η = 100 ·
+
+lim
+N→∞
+
+h(N ) = 100 ·
+
+lim
+N→∞
+
+ℓ
+
+(cid:19)
+
+(cid:18) 1
+N
+
+= 100 · ℓ(0) = 0
+
+Finally, η is decreasing for large enough N and approaches 0. It is now easy to see that:
+
+∃N0∈N∀N ≥N0 η > 0
+
+which exactly proves Eq. 130.
+
+A.8 PROOF OF THEOREM 8
+
+Let us state an extended and more detailed version of the Theorem 8.
+
+Theorem (Analysis of the maximal efficiency). Fix γ = 1, and let S > 0, 1 ≤ k < d. Consider the
+efficiency η = η(N ) as a function of continuous N ∈ R+. The following hold.
+
+• The maximal efficiency ηmax = max
+N ≥0
+
+η(N ) increases as a function of S > 0.
+
+• For fixed r :=
+
+d
+k
+
+and k ≫ max{1, S}, the maximizer Nmax = arg max
+
+N ≥0
+
+η(N ) decreases
+
+with S > 0 in both regimes S ≪ 1, S ≫ 1. In addition, in the regime S ≪ 1 the following
+approximation holds:
+
+Nmax ≈
+
+(cid:16)
+
+r 2
+
+3
+
+r 1
+3 − 1
+
+(cid:17)
+
+.
+
+r 2
+3 − 1
+
+k
+2S
+
+·
+
+Finally, in the regime S ≫ 1, the following approximation holds:
+
+Proof. Fix γ = 1, and take
+
+Nmax ≈
+
+√
+
+r.
+
+·
+
+k
+2S
+
+S > 0, 1 ≤ k < d.
+
+36
+
+(133)
+
+(134)
+
+Let us now define the following parametric function:
+
+fq(x, S) :=
+
+=
+
+=
+
+=
+
+=
+
+=
+
+√
+
+S
+x + q
+
+4S · 1
+
+x2 + 1
+
+(cid:113)(cid:0) q
+
+2S + 1(cid:1) · 1
+√
+S
+
+(cid:113) q+2S
+
+2Sx + q
+√
+
+4Sx2 + 1
+S
+(cid:113) 2x(q+2S)+q+4S 2x
+4Sx2
+
+2Sx
+(cid:112)2qx + q + 4Sx + 4Sx2
+2Sx
+(cid:112)(2x + 1)q + 4x(x + 1)S
+
+2Sx
+(cid:112)Dq(x, S)
+
+where we denoted
+
+Dq(x, S) = (2x + 1)q + 4x(x + 1)S
+= 4Sx2 + 2 (2S + q) x + q.
+
+From Definition 13 and Eq. 9, it follows that:
+
+(cid:18)
+
+1 −
+
+(cid:19)
+
+ˆp(S, N, 1, k)
+ˆp(S, N, 1, d)
+
+(cid:18)
+
+η = 100 ·
+
+1 −
+
+(cid:18)
+
+= 100 ·
+
+1 −
+
+(cid:18)
+
+= 100 ·
+
+1 −
+
+= 100 ·
+
+(cid:19)
+
+(cid:19)
+
+ˆpz(error)
+ˆpx(error)
+2 · Q (fk(N ))
+2 · Q (fd(N ))
+(cid:19)
+Q (fk(N ))
+Q (fd(N ))
+
+= 100 · h(N, S)
+
+where we defined the following function:
+
+h(x, S) := 1 −
+
+Q (fk(x, S))
+Q (fd(x, S))
+
+.
+
+Hence, our task reduces to proving that the following function is increasing:
+
+where we denoted
+
+V (S) := max
+x>0
+
+h(x, S) = h (x∗(S), S)
+
+x∗(S) = arg max
+
+h(x, S).
+
+x>0
+
+(135)
+
+(136)
+
+(137)
+
+(138)
+
+(139)
+
+(140)
+
+We note that the proof holds for each stationary point, and in particular for a maximizer that achieves
+the maximum value of the function h(x, S). In addition, using the first-order condition:
+
+∂h
+∂x
+
+(x∗(S), S) = 0.
+
+(141)
+
+We now aim to prove that V ′(S) > 0, where V (S) is defined in Eq. 139. From the chain rule, we
+have:
+
+V ′(S) =
+
+∂h
+∂S
+
+(x∗(S), S) +
+
+∂h
+∂x
+
+(x∗(S), S) ·
+
+∂x∗
+∂S
+
+=
+
+∂h
+∂S
+
+(x∗(S), S)
+
+(142)
+
+37
+
+where we used Eq. 141. Let us compute the partial derivative of h with respect to S:
+
+∂h
+∂S
+
+= −
+
+= −
+
+(cid:19)
+
+(cid:18) Q (fk(x, S))
+Q (fd(x, S))
+
+∂
+∂S
+∂S Q (fk(x, S)) · Q (fd(x, S)) − ∂
+∂
+
+∂S Q (fd(x, S)) · Q (fk(x, S))
+
+Q2 (fd(x, S))
+
+∂
+
+∂S Q (fd(x, S)) · Q (fk(x, S)) − ∂
+
+∂S Q (fk(x, S)) · Q (fd(x, S))
+
+Q2 (fd(x, S))
+
+=
+
+=
+
+=
+
+Q′ (fd(x, S)) · ∂fd
+
+exp (cid:0)− 1
+
+1
+√
+2π
+
+·
+
+∂S · Q (fk(x, S)) − Q′ (fk(x, S)) · ∂fk
+Q2 (fd(x, S))
+∂S · Q (fd(x, S)) − exp (cid:0)− 1
+
+k (x, S)(cid:1) · ∂fk
+
+2 f 2
+
+∂S · Q (fd(x, S))
+
+d (x, S)(cid:1) · ∂fd
+
+2 f 2
+
+∂S · Q (fk(x, S))
+
+where we used the identity Q′(x) = −
+
+1
+√
+2π
+Eq. 142, Eq. 143, that proving V ′(S) > 0 is equivalent to proving the following inequality:
+
+. It now follows immediately from
+
+· exp
+
+1
+2
+
+x2
+
+−
+
+Q2 (fd(x, S))
+
+(cid:18)
+
+(cid:19)
+
+(143)
+
+(cid:18)
+
+exp
+
+−
+
+1
+2
+
+k (x∗, S)
+f 2
+
+(cid:19) ∂fk
+∂S
+
+(x∗, S)Q (fd(x∗, S)) > exp
+
+(cid:18)
+
+−
+
+1
+2
+
+d (x∗, S)
+f 2
+
+(cid:19) ∂fd
+∂S
+
+(x∗, S)Q (fk(x∗, S)) .
+
+(144)
+We now turn to the first order condition for x∗(S) in Eq. 141, and thus equate the partial derivative of
+h with respect to x to zero. Similarly to Eq. 143, one can prove that for all x > 0 we have:
+
+∂h
+∂x
+
+= −
+
+∂
+∂x
+
+=
+
+1
+√
+2π
+
+(cid:19)
+
+(cid:18) Q (fk(x))
+Q (fd(x))
+exp (cid:0)− 1
+2 f 2
+
+·
+
+k (x, S)(cid:1) · ∂fk
+
+∂x · Q (fd(x, S)) − exp (cid:0)− 1
+
+2 f 2
+
+d (x, S)(cid:1) · ∂fd
+
+∂x · Q (fk(x, S))
+
+Q2 (fd(x, S))
+
+.
+
+(145)
+
+That is, equating
+
+∂h
+∂x
+
+= 0 yields the following equation for x∗(S):
+
+(cid:18)
+
+exp
+
+−
+
+1
+2
+
+k (x∗, S)
+f 2
+
+(cid:19) ∂fk
+∂x
+
+(x∗, S)Q (fd(x∗, S)) = exp
+
+(cid:18)
+
+−
+
+1
+2
+
+d (x∗, S)
+f 2
+
+(cid:19) ∂fd
+∂x
+
+(x∗, S)Q (fk(x∗, S)) .
+
+(146)
+We now divide both sides of the inequality in Eq. 144 by the (positive) value we have in the latter
+equality, in order to get the following simplified inequality:
+
+∂fk
+∂S (x∗, S)
+∂fk
+∂x (x∗, S)
+
+>
+
+∂fd
+∂S (x∗, S)
+∂fd
+∂x (x∗, S)
+
+.
+
+38
+
+(147)
+
+We indeed divided by a positive amount, because exp(·) > 0, Q(·) > 0, and
+from Eq. 135, Eq. 136, we have:
+
+∂fq
+∂x
+
+> 0: for all x > 0,
+
+(cid:32)
+
+∂fq
+∂x
+
+=
+
+∂
+∂x
+
+2Sx
+(cid:112)Dq(x, S)
+
+(cid:33)
+
+(cid:33)
+
+(cid:32)
+
+∂
+∂x
+
+x
+(cid:112)Dq(x, S)
+(cid:112)Dq(x, S) − x · ∂
+
+∂x
+
+(cid:16)(cid:112)Dq(x, S)
+(cid:17)
+
+
+
+
+
+Dq(x, S)
+
+= 2S ·
+
+= 2S ·
+
+= 2S ·
+
+= 2S ·
+
+
+
+
+
+
+
+
+
+
+(cid:32)
+
+(cid:112)Dq(x, S) − x · ∂Dq(x,S)/∂x
+
+√
+
+Dq(x,S)
+
+2
+Dq(x, S)
+
+
+
+
+
+
+(148)
+
+2 · Dq(x, S) − x · ∂Dq(x,S)
+2 · (Dq(x, S))3/2
+
+∂x
+
+(cid:33)
+
+=
+
+=
+
+=
+
+S
+(Dq(x, S))3/2
+S
+(Dq(x, S))3/2
+2S
+(Dq(x, S))3/2
+
+· (cid:0)2 (cid:0)4Sx2 + 2 (2S + q) x + q(cid:1) − x (8Sx + 2 (2S + q))(cid:1)
+
+· (2 (2S + q) x + 2q)
+
+· ((2S + q) x + q) > 0
+
+where we used the definition of Dq(x, S) in Eq. 136. We now compute the partial derivative of fq
+with respect to S:
+
+(cid:32)
+
+(cid:33)
+
+2Sx
+(cid:112)Dq(x, S)
+
+(cid:32)
+
+(cid:33)
+
+∂
+∂S
+
+S
+(cid:112)Dq(x, S)
+(cid:112)Dq(x, S) − S · ∂
+
+∂S
+
+∂fq
+∂S
+
+=
+
+∂
+∂S
+
+= 2x ·
+
+= 2x ·
+
+= 2x ·
+
+
+
+
+
+
+
+
+
+
+Dq(x, S)
+
+(cid:112)Dq(x, S) − S · ∂Dq(x,S)/∂S
+
+Dq(x,S)
+
+√
+2
+Dq(x, S)
+
+
+
+
+
+
+(cid:17)
+(cid:16)(cid:112)Dq(x, S)
+
+
+
+
+
+(149)
+
+2 · Dq(x, S) − S · ∂Dq(x,S)
+2 · (Dq(x, S))3/2
+We now use the definition of Dq(x, S) from Eq. 136, and get
+
+= 2x ·
+
+∂S
+
+(cid:32)
+
+(cid:33)
+
+.
+
+∂fq
+∂S
+
+=
+
+=
+
+=
+
+=
+
+x
+(Dq(x, S))3/2
+x
+(Dq(x, S))3/2
+x
+(Dq(x, S))3/2
+2x
+(Dq(x, S))3/2
+
+· (cid:0)2 (cid:0)4Sx2 + 2 (2S + q) x + q(cid:1) − S · 4x(x + 1)(cid:1)
+
+· (cid:0)4Sx2 + 4 (2S + q) x − 4Sx + 2q(cid:1)
+
+· (cid:0)4Sx2 + 4 (S + q) x + 2q(cid:1)
+
+· (cid:0)2Sx2 + 2 (S + q) x + q(cid:1) .
+
+39
+
+(150)
+
+Let us now define
+
+Rq(x, S) :=
+
+=
+
+=
+
+=
+
+2S
+
+∂fq
+∂S (x, S)
+∂fq
+∂x (x, S)
+(Dq(x,S))3/2 · (cid:0)2Sx2 + 2 (S + q) x + q(cid:1)
+2x
+(Dq(x,S))3/2 · ((2S + q) x + q)
+(cid:19)
+(cid:18) 2Sx2 + 2Sx + 2x · q + q
+2Sx + x · q + q
+(cid:18) 2Sx (x + 1) + (2x + 1) · q
+2Sx + (x + 1) · q
+
+x
+S
+x
+S
+
+(cid:19)
+
+·
+
+·
+
+(151)
+
+where we used the partial derivatives of fq, computed in Eq. 148, Eq. 150. We remember that we
+need to prove Eq. 147, which is equivalent to Rq(x, S) being a decreasing function in the argument q
+(this is because 1 ≤ k < d). Indeed, let us compute
+
+x
+S
+x
+S
+
+·
+
+·
+
+(cid:19)
+
+(cid:18) 2Sx(x + 1) + (2x + 1) · q
+2Sx + (x + 1) · q
+
+∂
+∂q
+(2x + 1) · (2Sx + (x + 1) · q) − (x + 1) · (2Sx(x + 1) + (2x + 1) · q)
+(2Sx + (x + 1) · q)2
+
+(152)
+
+∂Rq(x, S)
+∂q
+
+=
+
+=
+
+=
+
+=
+
+2x(2x + 1) · S − 2x(x + 1)2 · S
+(2Sx + (x + 1) · q)2
+
+·
+
+x
+S
+2x2 · (cid:0)2x + 1 − (x + 1)2(cid:1)
+(2Sx + (x + 1) · q)2
+2x4
+(2Sx + (x + 1) · q)2 .
+
+= −
+
+That is,
+
+∂Rq(x, S)
+∂q
+
+= −
+
+2x4
+
+(2Sx + (x + 1) · q)2 < 0
+
+which proves Eq. 147. We argued that this is equivalent to Eq. 144. As we proved in Eq. 142,
+this inequality is equivalent to proving V ′(S) > 0. Finally, the result is straightforward because
+η = 100 · h(N, S). This proves the first part of the theorem.
+
+We will now prove the second part of the theorem. Let us fix d > k ≫ max{1, S}, and
+> 1. We prove that the maximizer x∗(S), defined in Eq. 140, decreases as a function of S.
+
+r :=
+Let us first define the following rescaled x value:
+
+d
+k
+
+Thus,
+
+x(t) :=
+
+k
+S
+
+· t.
+
+x∗(S) =
+
+k
+S
+
+· arg max
+t>0
+
+h (x(t), S) .
+
+40
+
+(153)
+
+(154)
+
+From Eq. 135, it follows that:
+
+fq (x(t), S) =
+
+2S · x(t)
+(cid:112)(2x(t) + 1) q + 4x(t) (x(t) + 1) S
+
+∼
+
+=
+
+=
+
+=
+
+=
+
+=
+
+2S · x(t)
+(cid:112)2x(t) · q + 4x2(t) · S
+
+2S
+
+(cid:113) 2q
+
+x(t) + 4S
+2S
+
+(cid:113)
+
+2q · S
+√
+
+k·t + 4S
+√
+√
+2
+kt
+S ·
+√
+2q + 4kt
+
+(cid:115)
+
+(cid:115)
+
+2Sk · t
+q + 2k · t
+
+2St
+q
+k + 2t
+
+(155)
+
+where we assumed x(t) ≫ 1 which follows from q ≫ 1, S ≪ q, t = O(1). We explain the
+assumption t = O(1) in a moment. Now, from Eq. 138, we have:
+
+h (x(t), S) = 1 −
+
+Q (fk (x(t), S))
+Q (fd (x(t), S))
+
+∼ 1 −
+
+(cid:16)(cid:113) 2St
+1+2t
+(cid:16)(cid:113) 2St
+r+2t
+
+(cid:17)
+
+(cid:17)
+
+Q
+
+Q
+
+this motivates the assumption t = O(1) we used in Eq. 155: the maximizer
+
+t∗(r, S) = arg max
+
+h (x(t), S) ∼ arg min
+
+t>0
+
+t>0
+
+
+
+
+
+(cid:16)(cid:113) 2St
+1+2t
+(cid:16)(cid:113) 2St
+r+2t
+
+Q
+
+Q
+
+(cid:17)
+
+
+
+
+
+(cid:17)
+
+= arg min
+
+t>0
+
+gS,r(t)
+
+(156)
+
+(157)
+
+is a function of r = O(1) which is a constant and S ≪ k, and thus in the region of interest (close to
+the maximizer), t = O(1) does not scale with k. The key insight here is that t∗(r, S) doesn’t depend
+on k, d. We also defined the following function:
+
+gS,r(t) :=
+
+(cid:16)(cid:113) 2St
+1+2t
+(cid:16)(cid:113) 2St
+r+2t
+
+(cid:17)
+
+(cid:17) .
+
+Q
+
+Q
+
+(158)
+
+Finally, we would like to analyze the dependency of t∗(r, S) on S. We will prove that in both regimes
+S ≪ 1, S ≫ 1, we have that t∗(r, S) does not depend on S, and thus in both regimes, from Eq. 154,
+Eq. 157, the maximizer
+
+x∗(S) =
+
+k
+S
+
+· t∗(r)
+
+41
+
+(159)
+
+is decreasing as a function of S > 0. For the regime S ≪ 1: We use the approximation Q(x) ∼
+1
+2
+
+· x for x ≪ 1 and Eq. 158 to get
+
+−
+
+1
+√
+2π
+
+gS,r(t) =
+
+(cid:16)(cid:113) 2St
+1+2t
+(cid:16)(cid:113) 2St
+r+2t
+
+Q
+
+Q
+
+(cid:17)
+
+(cid:17) ∼
+
+=
+
+(cid:113) 2St
+1+2t
+(cid:113) 2St
+r+2t
+(cid:113) 2St
+1+2t
+(cid:113) 2St
+r+2t
+
+·
+
+·
+
+·
+
+·
+
+1
+
+2 − 1√
+2 − 1√
+
+1
+
+2π
+
+2π
+
+1 − 2√
+2π
+1 − 2√
+2π
+(cid:32)
+
+∼
+
+1 −
+
+(cid:32)
+
+∼
+
+1 −
+
+2
+√
+2π
+
+2
+√
+2π
+
+= 1 −
+
+(cid:114) 2
+π
+
+·
+
+= 1 − 2
+
+(cid:114)
+
+S
+π
+
+(cid:114) 2St
+1 + 2t
+(cid:114) 2St
+1 + 2t
+(cid:32)(cid:114) 2St
+1 + 2t
+(cid:32)(cid:114) t
+
+·
+
+(cid:33) (cid:32)
+
+1 +
+
+(cid:114) 2St
+r + 2t
+(cid:33)
+
+2
+√
+2π
+(cid:114) 2St
+r + 2t
+(cid:33)
+
++
+
+−
+
+2
+√
+2π
+(cid:114) 2St
+r + 2t
+(cid:114) t
+
+−
+
+(cid:33)
+
+.
+
+1 + 2t
+
+r + 2t
+
+(cid:33)
+
+(160)
+
+This approximation is motivated from the fact that the argument of the Q function in both the
+numerator and the denominator is at most
+
+S ≪ 1. Thus, from Eq. 157, we have:
+
+√
+
+t∗(r, S) = arg min
+
+t>0
+
+(cid:32)(cid:114) t
+
+1 + 2t
+
+(cid:114) t
+
+(cid:33)
+
+r + 2t
+
+−
+
+is independent of S. We will also calculate the minimizer. Let us define
+
+Ψ1(t) =
+
+(cid:114) t
+
+1 + 2t
+
+(cid:114) t
+
+r + 2t
+
+.
+
+−
+
+We now equate the derivative of Ψ1(t) to 0:
+
+(cid:32)(cid:114) t
+
+(cid:33)
+
+−
+
+d
+dt
+
+(cid:32)(cid:114) t
+
+(cid:33)
+
+r + 2t
+
+1 + 2t
+
+1
+
+(cid:33)
+
+−
+
+√
+
+3
+2
+
+r
+t · (r + 2t) 3
+
+2
+
+t · (1 + 2t)
+(cid:32)
+
+1
+
+(1 + 2t)
+
+3
+2
+
+−
+
+(cid:33)
+
+r
+
+(r + 2t)
+
+3
+2
+
+dΨ1
+dt
+
+=
+
+=
+
+=
+
+=
+
+d
+dt
+
+(cid:32)
+
+√
+
+1
+2
+
+1
+√
+2
+
+t
+
+1
+√
+2
+
+t
+
+·
+
+·
+
+(r + 2t)
+
+3
+
+2 − r (1 + 2t)
+
+3
+2
+
+(1 + 2t)
+
+3
+
+2 · (r + 2t)
+
+3
+2
+
+42
+
+(161)
+
+(162)
+
+(163)
+
+where we used the following formula:
+
+(cid:32)(cid:114) t
+
+(cid:33)
+
+a + 2t
+
+d
+dt
+
+=
+
+=
+
+=
+
+=
+
+Finally, from Eq. 163, we have:
+
+d
+dt
+
+2 ·
+
+(cid:16) t
+
+(cid:17)
+
+a+2t
+(cid:113) t
+
+a+2t
+
+a
+(a+2t)2
+(cid:113) t
+
+2 ·
+
+a+2t
+
+√
+
+a + 2t
+√
+2 ·
+
+a
+(a + 2t)2 ·
+1
+a
+t · (a + 2t) 3
+2
+
+√
+
+t
+
+·
+
+2
+
+3
+
+(r + 2t∗)
+r + 2t∗ = r
+(cid:17)
+
+2 = r (1 + 2t∗)
+3 · (1 + 2t∗)
+(cid:16)
+
+(cid:16)
+
+2
+
+3
+2
+
+2t∗ ·
+
+1 − r
+
+2
+3
+
+(cid:17)
+
+1
+3
+
+2
+3
+
+= r
+(cid:16)
+
+1 − r
+(cid:17)
+
+t∗ =
+
+r 2
+
+3
+
+(cid:16)
+
+2
+
+3
+
+1 − r 1
+(cid:17)
+
+1 − r 2
+
+3
+
+That is, the maximizer is unique, and from Eq. 159, in the regime S ≪ 1 we have:
+
+x∗(S) ∼
+
+1
+2
+
+k ·
+
+(cid:16)
+
+r 2
+
+3
+
+r 1
+3 − 1
+
+(cid:17)
+
+r 2
+3 − 1
+
+·
+
+1
+S
+
+(164)
+
+which is strictly decreasing as a function of S.
+
+For the regime S ≫ 1: We use the approximation Q(x) ∼
+
+√
+
+1
+2πx
+
+(cid:18)
+
+· exp
+
+−
+
+(cid:19)
+
+x2
+2
+
+and Eq. 158 to get
+
+gS,r(t) =
+
+(cid:16)(cid:113) 2St
+1+2t
+(cid:16)(cid:113) 2St
+r+2t
+
+Q
+
+Q
+
+(cid:17)
+
+(cid:17) ∼
+
+1√
+
+2π
+
+1√
+
+2π
+
+·
+
+·
+
+(cid:113) 1+2t
+
+2St · exp
+
+(cid:113) r+2t
+
+2St · exp
+
+(cid:16)
+
+(cid:16)
+
+− 1
+
+2 · 2St
+
+1+2t
+
+2 · 2St
+− 1
+(cid:17)
+
+r+2t
+
+(cid:17)
+
+(cid:17)
+
+(165)
+
+(cid:114) 1 + 2t
+r + 2t
+
+·
+
+exp
+
+exp
+
+(cid:16)
+
+− St
+1+2t
+
+(cid:16)
+
+− St
+r+2t
+
+(cid:17)
+
+=
+
+=
+
+(cid:114) 1 + 2t
+r + 2t
+
+(cid:18)
+
+· exp
+
+−St ·
+
+(cid:18) 1
+
+1 + 2t
+
+−
+
+1
+r + 2t
+
+(cid:19)(cid:19)
+
+minimizing gS,r(t) is equivalent to minimizing ln (gS,r(t)):
+
+MS,r(t) := ln (gS,r(t)) =
+
+1
+2
+
+ln (1 + 2t) −
+
+1
+2
+
+ln (r + 2t) − St ·
+
+(cid:18) 1
+
+1 + 2t
+
+(cid:19)
+
+−
+
+1
+r + 2t
+
+(166)
+
+43
+
+Let us equate the derivative of MS,r(t) to 0:
+(cid:18) d
+dt
+
+1
+r + 2t
+
+− S ·
+
+−
+
+1
+1 + 2t
+1
+1 + 2t
+
+(cid:18) t
+
+(cid:19)
+
+(cid:18) t
+
+(cid:19)(cid:19)
+
+−
+
+d
+dt
+
+1 + 2t
+1
+(1 + 2t)2 −
+S
+(1 + 2t)2 −
+
+r + 2t
+(cid:19)
+r
+(r + 2t)2
+Sr
+(r + 2t)2
+
+= 0
+
+= 0
+
+−
+
+1
+r + 2t
+
+(cid:18)
+
+− S ·
+
+1
+1 + 2t
+
+−
+
+1
+r + 2t
+
+=
+
+(1 + 2t)(r + 2t)2 − (1 + 2t)2(r + 2t) = S(r + 2t)2 − Sr(1 + 2t)2
+(1 + 2t)(r + 2t) · (r − 1) = S · (cid:0)r2 + 4rt + 4t2(cid:1) − Sr · (cid:0)1 + 4t + 4t2(cid:1)
+(r − 1) · (r + 2 (r + 1) t + 4t2) = S · (cid:0)r2 + 4rt + 4t2(cid:1) − Sr · (cid:0)1 + 4t + 4t2(cid:1)
+4(r − 1) · t2 + 2(r2 − 1)t + r(r − 1) = (4S − 4Sr) t2 + Sr2 − Sr
+4(r − 1) · t2 + 2(r − 1)(r + 1)t + r(r − 1) = 4S (1 − r) t2 + Sr (r − 1)
+4t2 + 2(r + 1)t + r = −4St2 + Sr
+4 (1 + S) t2 + 2(r + 1) · t + r (1 − S) = 0
+
+Finally, we take the positive root (because t∗(r, S) > 0) and get:
+
+t∗(r, S) =
+
+−2(r + 1) + (cid:112)4(r + 1)2 − 16r(1 + S)(1 − S)
+8(1 + S)
+
+−(r + 1) + (cid:112)(r + 1)2 + 4r (S 2 − 1)
+4(S + 1)
+
+=
+
+(167)
+
+we note that we got a single solution and that the maximizer is unique, and S ≫ 1 and thus the
+formula is well-defined. We note that
+
+and thus, from Eq. 159, in the S ≫ 1 regime, we have
+
+lim
+S→∞
+
+t∗(r, S) =
+
+√
+
+r
+2
+
+x∗(S) ∼
+
+k
+S
+
+·
+
+−(r + 1) + (cid:112)(r + 1)2 + 4r (S 2 − 1)
+4(S + 1)
+
+and as S → ∞ we have x∗(S) ∼
+decreasing function of S.
+
+√
+
+r
+2
+
+k
+S
+
+·
+
+, and thus in the S ≫ 1 regime we have x∗(S) ∼
+
+(168)
+
+1
+S
+
+is a
+
+44
+
+B ADDITIONAL THEORETICAL RESULTS
+
+We have established an approximation of the efficiency of the processing η for N ≫ 1. We now do
+the same for the difference
+
+∆ := ˆpx(error) − ˆpz(error).
+This allows us to gain insight into the different factors that affect the difference ∆ between the
+probability of error that is caused by the processing.
+Theorem 10 (Analysis of the asymptotic difference). Let S > 0, 1 ≤ k < d, 0 < γ ≤ 1. Denote by
+NT = (1 + γ) N the total number of training samples. With approximation accuracy O(1/N 2
+T ), we
+have
+
+∆ ≈
+
+1
+√
+2π
+
+4
+
+·
+
+exp (cid:0)− S
+√
+S
+
+2
+
+(cid:1)
+
+(cid:18)
+
+·
+
+3 + 2γ +
+
+(cid:19)
+
+1
+γ
+
+· (d − k) ·
+
+1
+NT
+
+.
+
+(169)
+
+In particular, for NT ≫ 1: The difference increases when d − k increases or γ decreases within
+0 < γ ≤ 1/
+
+2; The difference decreases when S increases or NT increases.
+
+√
+
+Proof. Let us take some NT ∈ N and
+
+S > 0, 1 ≤ k < d, 0 < γ ≤ 1.
+
+We have NT = N + γN = (1 + γ)N the total number of training samples, and thus N =
+
+Let us define the following parametric function:
+
+fs,a,q(x) :=
+
+√
+
+S + s · (1−γ)·q
+S
+
+4γ·
+
+√
+
+· 1
+x
+
+=
+
+(cid:114)(cid:16) (1+γ)·q
+
+(cid:17)
+
+4γ·S + 1
+
+a
+
+x + (1+γ2)·q
+· 1
+
+8γ2·S · 1
+
+x2 + 1
+
+√
+
+S + B
+x
+x2 + 1
+
+x + D
+
+(cid:113) C
+
+where the parameters B, C, D are:
+
+
+
+
+
+
+B = s ·
+
+C =
+
+D =
+
+S
+
+√
+
+(1 − γ) · q
+4γ ·
+(1 + γ) · q
+4γ · S
+(1 + γ2) · q
+8γ2 · S
+
++
+
+1
+a
+
+NT
+1 + γ
+
+.
+
+(170)
+
+(171)
+
+From the Definition ∆ := ˆpx(error) − ˆpz(error) and Eq. 9, it follows that:
+
+∆ = ˆpx(error) − ˆpz(error) = ˆp(S, N, γ, d) − ˆp(S, N, γ, k)
+
+= [Q (f1,γ,d(N )) + Q (f−1,1,d(N ))] − [Q (f1,γ,k(N )) + Q (f−1,1,k(N ))]
+= h(N )
+
+(172)
+
+where we defined the following function:
+
+h(x) := [Q (f1,γ,d(x)) + Q (f−1,1,d(x))] − [Q (f1,γ,k(x)) + Q (f−1,1,k(x))] .
+
+(173)
+
+Now, let us define the following parametric function:
+
+gs,a,q(x) := fs,a,q
+
+(cid:19)
+
+(cid:18) 1
+x
+
+=
+
+√
+
+√
+
+S + B · x
+D · x2 + C · x + 1
+
+(174)
+
+where we used Eq. 170, Eq. 171. Let us also define:
+
+ℓ(x) := h
+
+(cid:19)
+
+(cid:18) 1
+x
+
+= [Q (g1,γ,d(x)) + Q (g−1,1,d(x))] − [Q (g1,γ,k(x)) + Q (g−1,1,k(x))]
+
+(175)
+
+where we used Eq. 174, Eq. 173. Thus, the first-order Taylor expansion of ℓ:
+
+ℓ(x) = ℓ(0) + ℓ′(0) · x + O (cid:0)x2(cid:1)
+
+45
+
+Where the approximation is exact for x ≪ 1. Thus, the following is exact for x ≫ 1:
+(cid:18) 1
+x
+
+x ≫ 1 ⇒ h(x) = ℓ
+
+(cid:18) 1
+x2
+
+ℓ′(0)
+x
+
+= ℓ(0) +
+
++ O
+
+(cid:19)
+
+(cid:19)
+
+.
+
+We have
+
+Thus,
+
+N =
+
+NT
+1 + γ
+
+≫ 1 ⇔ NT ≫ 1 + γ
+
+h (N ) = ℓ(0) +
+
+ℓ′(0)
+N
+
++ O
+
+(cid:18) 1
+N 2
+
+(cid:19)
+
+.
+
+(176)
+
+(177)
+
+(178)
+
+Let us first compute ℓ(0):
+
+ℓ(0) = [Q (g1,γ,d(0)) + Q (g−1,1,d(0))]−[Q (g1,γ,k(0)) + Q (g−1,1,k(0))] = 2·Q(
+
+√
+
+√
+
+S)−2·Q(
+
+S) = 0
+
+Finally, we will compute ℓ′(0): We first compute g′
+
+s,a,q(0). From Eq. 174 it follows that:
+
+(179)
+
+√
+
+B ·
+
+g′
+s,a,q(x) =
+
+D · x2 + C · x + 1 −
+
+√
+
+2D·x+C
+D·x2+C·x+1
+
+2·
+D · x2 + C · x + 1
+
+2B · (cid:0)D · x2 + C · x + 1(cid:1) − (2D · x + C) ·
+2 · (D · x2 + C · x + 1)1.5
+√
+
+(BC − 2SD) · x + (2B − C
+2 · (D · x2 + C · x + 1)1.5
+
+S)
+
+.
+
+=
+
+=
+
+(cid:16)√
+
+·
+
+(cid:17)
+
+S + B · x
+
+(cid:16)√
+
+(cid:17)
+
+S + B · x
+
+Thus, the derivative at 0 is:
+
+g′
+s,a,q(0) =
+
+=
+
+=
+
+=
+
+=
+
+= B −
+
+√
+
+S
+
+· C
+
+1
+2
+(cid:18) (1 + γ) · q
+4γ · S
+
+1
+2
+
+·
+
+(cid:19)
+
+√
+
+S
+
+·
+
++
+
+1
+a
+
+2B − C
+
+√
+
+S
+
+2
+s · (1 − γ) · q
+4γ · S
+
+s · (1 − γ) · q
+4γ · S
+
+−
+
+−
+
+(1 + γ) · q
+8γ ·
+
+√
+
+S
+
+2s · (1 − γ) · q − (1 + γ) · q
+8γ · S
+
+((2s − 1) − (2s + 1) · γ) · q
+
+√
+
+8γ ·
+
+S
+
+√
+
+S
+2a
+√
+
+S
+2a
+√
+
+S
+2a
+
+−
+
+−
+
+−
+
+.
+
+Now, from Eq. 175, the derivative ℓ′(x) reads
+
+ℓ′(x) =
+
+d
+dx
+
+(v(x) − u(x))
+
+= v′(x) − u′(x)
+
+where we defined the following auxiliary functions:
+
+(cid:26)u(x) = Q (g1,γ,k(x)) + Q (g−1,1,k(x))
+v(x) = Q (g1,γ,d(x)) + Q (g−1,1,d(x))
+
+From the chain rule, their derivatives are:
+(cid:26)u′(x) = g′
+v′(x) = g′
+
+1,γ,k(x) · Q′ (g1,γ,k(x)) + g′
+1,γ,d(x) · Q′ (g1,γ,d(x)) + g′
+
+−1,1,k(x) · Q′ (g−1,1,k(x))
+−1,1,d(x) · Q′ (g−1,1,d(x))
+
+Now, from Eq. 181, Eq. 183 it follows that:
+
+ℓ′(0) = v′(0) − u′(0).
+
+46
+
+(180)
+
+(181)
+
+(182)
+
+(183)
+
+(184)
+
+It is easy to verify from Eq. 174 that gs,a,q(0) =
+have the following formulas:
+
+√
+
+S. Thus, from Eq. 182, Eq. 183 and Eq. 180, we
+
+(cid:32)
+
+(cid:32)
+
+
+
+
+u′(0) =
+
+v′(0) =
+
+(1 − 3γ) · k
+
+√
+
+8γ ·
+
+S
+
+(1 − 3γ) · d
+
+√
+
+8γ ·
+
+S
+
+−
+
+−
+
+√
+
+S
+2γ
+√
+
+S
+2γ
+
+(cid:33)
+
+(cid:33)
+
+√
+
+· Q′(
+
+S) +
+
+√
+
+· Q′(
+
+S) +
+
+(cid:32)
+
+(cid:32)
+
+−(3 + γ) · k
+
+√
+
+8γ ·
+
+S
+
+−(3 + γ) · d
+
+√
+
+8γ ·
+
+S
+
+√
+
+S
+2
+√
+
+S
+2
+
+−
+
+−
+
+(cid:33)
+
+(cid:33)
+
+√
+
+S)
+
+· Q′(
+
+√
+
+· Q′(
+
+S)
+
+(185)
+
+ℓ′(0) =
+
+Now, we substitute Eq. 185 in Eq. 184 to get the following formula for ℓ′(0):
+Q′ (cid:16)√
+S
+Q′ (cid:16)√
+(cid:18)
+
+1 − 3γ
+√
+8γ
+S
+−2 − 4γ
+√
+8γ
+S
+−2 (1 + 2γ)
+√
+
+3 + γ
+√
+S
+8γ
+
+Q′ (cid:16)√
+
+· (d − k) −
+
+· (d − k)
+
+exp
+
+−
+
+(cid:19)(cid:19)
+
+−
+
+=
+
+(cid:18)
+
+S
+
+S
+
+(cid:17)
+
+(cid:17)
+
+(cid:17)
+
+·
+
+· (d − k)
+
+· (d − k)
+
+(186)
+
+=
+
+=
+
+=
+
+8γ
+
+1
+√
+2π
+1
+√
+2π
+
+4
+
+4
+
+·
+
+·
+
+2
+
+S
+exp (cid:0)− S
+√
+S
+exp (cid:0)− S
+√
+S
+
+2
+
+1
+√
+2π
+
+S
+2
+
+(cid:1)
+
+(cid:1)
+
+·
+
+·
+
+1 + 2γ
+γ
+
+· (d − k)
+
+(cid:18)
+
+2 +
+
+(cid:19)
+
+1
+γ
+
+· (d − k)
+
+where we used the following property of the Q function:
+
+Q′(x) = −
+
+1
+√
+2π
+
+(cid:18)
+
+· exp
+
+−
+
+(cid:19)
+
+.
+
+x2
+2
+
+Finally, from Eq. 172, Eq. 177, Eq. 178, Eq. 179, Eq. 186, it follows that:
+
+∆ = h(N )
+
+= ℓ(0) +
+
+ℓ′(0)
+N
+
++ O
+
+(cid:19)
+
+(cid:18) 1
+N 2
+
+=
+
+ℓ′(0)
+N
+
++ O
+
+(cid:19)
+
+(cid:18) 1
+N 2
+exp (cid:0)− S
+√
+S
+
+2
+
+1
+√
+2π
+4
+We proceed with Eq. 187 and substitute Eq. 177:
+
+=
+
+2 +
+
+·
+
+·
+
+(cid:1)
+
+(cid:18)
+
+(187)
+
+(cid:19)
+
+1
+γ
+
+· (d − k) ·
+
+1
+N
+
++ O
+
+(cid:18) 1
+N 2
+
+(cid:19)
+
+.
+
+N =
+
+NT
+1 + γ
+
+which leads to the following approximation of ∆:
+(cid:19)
+
+(cid:18)
+
+(cid:1)
+
+∆ =
+
+4
+
+1
+√
+2π
+
+=
+
+1
+√
+2π
+
+4
+
+2
+
+exp (cid:0)− S
+√
+S
+exp (cid:0)− S
+√
+S
+
+2
+
+·
+
+·
+
+·
+
+·
+
+(cid:1)
+
+(cid:18)
+
+2 +
+
+1
+γ
+
+· (d − k) ·
+
+1 + γ
+NT
+
++ O
+
+3 + 2γ +
+
+(cid:19)
+
+1
+γ
+
+· (d − k) ·
+
+1
+NT
+
+(cid:19)
+
+(cid:18) 1
+N 2
+T
+(cid:18) 1
+N 2
+T
+
++ O
+
+(188)
+
+(cid:19)
+
+.
+
+We now analyze the dependence of NT , d − k, γ, S on ∆ for NT ≫ 1. The results will be identical
+to those derived in 7. From Eq. 188, the following hold for NT ≫ 1:
+
+• ∆ decreases with NT .
+
+• ∆ increases with d − k.
+
+• ∆ increases when γ decreases within γ ∈
+
+0,
+
+(cid:18)
+
+(cid:21)
+
+: this is because the function
+
+1
+√
+2
+
+f (γ) = 3 + 2γ +
+
+1
+γ
+
+47
+
+has a minimum at γ =
+
+1
+√
+2
+
+within (0, 1).
+
+• ∆ decreases with S: this is because
+
+g(S) :=
+
+(cid:1)
+
+exp (cid:0)− S
+√
+S
+
+2
+
+decreases with S: indeed,
+
+g′(S) =
+
+− 1
+
+2 exp (cid:0)− S
+
+2
+
+(cid:1) √
+
+S − 1
+√
+
+2
+
+S
+
+exp (cid:0)− S
+
+2
+
+(cid:1)
+
+= −
+
+(cid:1)
+
+exp (cid:0)− S
+2S
+
+2
+
+·
+
+S
+(cid:18)√
+
+S +
+
+(cid:19)
+
+1
+√
+S
+
+< 0.
+
+C ADDITIONAL EMPIRICAL DETAILS AND RESULTS (CIFAR-10, DENOISING)
+
+C.1 EXPERIMENTS COMPUTE RESOURCES
+
+We conducted our experiments using a few NVIDIA RTX 6000 Ada Generation GPUs with 48GB
+memory. The training time for each data point in Figures 2 , 5 and 6 ranged from one hour to twelve
+hours, depending on the number of training samples.
+
+C.2 TRAINING THE CLASSIFIER
+
+We consider the CIFAR-10 dataset (Krizhevsky et al., 2009) and the ResNet18 model (He et al.,
+2016). To train the model, we use: batch size 128 and 350 epochs; cross-entropy loss; SGD optimizer;
+learning rate: 0.0679; learning rate decay: 0.1 at epochs 116 and 233; momentum: 0.9; weight decay:
+0.0005. This setting yields 90% accuracy for clean data.
+
+Per noise level σ ∈ {0.25, 0.4} of the additive Gaussian noise that has been added to the data, we use
+this setting to train two classifiers: one that operates directly on the noisy data and one that operates
+on the denoised data.
+
+C.3 TRAINING THE DENOISER
+
+For the denoiser, we use the DnCNN model (Zhang et al., 2017) and 15,000 training images while
+ignoring their labels. Per image, the clean version, xgt, is the target and its noisy version, x, is
+the input to the model. To train the model, we use: batch size 64 and 1000 epochs; MSE loss;
+Adam optimizer; learning rate: 0.0001; learning rate decay: 0.5 at iterations 20k, 40k, 60k, 80k,
+100k, and 200k. The results with the MSE-based denoiser with γ < 1 are presented in Figure 6.
+Note that, in order for the division of samples among the first five classes to be valid, we require
+Ntrain
+1 + γ
+all γ < 1. Thus, we add a sufficient amount of samples from the synthetic set CIFAR-5m to the
+classifier train set, both in the noisy and denoised case (where the noisy CIFAR-5m passes through
+the denoiser).
+
+≤ 17500 ⇒ Ntrain ≤ 17500 (1 + γ). This shows that the point Ntrain = 35000 is invalid for
+
+C.4 TRAINING THE DENOISER WITHOUT CLEAN IMAGES
+
+Replacing the MSE loss with Stein’s Unbiased Risk Estimate (SURE) (Stein, 1981; Soltanayev
+& Chun, 2018) allows to train the denoiser using only noisy images. Specifically, instead of
+MSE(zθ(x), xgt) = ∥zθ(x) − xgt∥2, we use:
+
+SURE(zθ(x)) = ∥zθ(x) − x∥2 − dσ2 + 2σ2
+
+d
+(cid:88)
+
+i=1
+
+∂
+∂xi
+
+zθ(x),
+
+48
+
+which obeys E[SURE(zθ(x))] = E[MSE(zθ(x), xgt)] for x|xgt ∼ N (xgt, σ2I). We use the
+common practice of approximating the divergence term with g⊤(zθ(x + ϵg) − zθ(x))/ϵ, where ϵ
+is small and g ∼ N (0, I) is drawn per optimizer iteration. Additionally, we use: batch size 64 and
+1000 epochs; Adam optimizer; learning rate: 0.0001; learning rate decay: 0.5 at iterations 20k, 40k,
+60k, 80k, 100k, and 200k.
+
+The results for the setup with the SURE-based denoiser are presented in Figure 5. It can be seen that
+they resemble the results for the MSE-based denoiser, which are presented in Section 4.
+
+C.5 NUMERICAL ACCURACY RESULTS
+
+In the following Tables 1 and 2 we report accuracy results related to Figure 2.
+
+Ntrain
+1000
+2000
+3000
+5000
+10000
+15000
+25000
+35000
+
+Error without denoising (%) Error with denoising (%)
+
+71.12 ±1.39
+64.91 ±1.44
+63.19 ±1.21
+60.43 ±1.42
+46.15 ±0.81
+42.14 ±0.8
+38.48 ±0.29
+35.77 ±0.30
+
+63.32 ±0.96
+58.14 ±1.41
+54.62 ±0.37
+49.79 ±1.80
+42.43 ±0.25
+39.74 ±0.40
+36.02 ±0.38
+33.83 ±0.25
+
+Table 1: Classification error rates (%) on noisy and denoised CIFAR-10 images for varying training
+set sizes Ntrain. The noise level is σ = 0.25, γ = 1, and the denoiser is trained with MSE loss.
+
+Ntrain
+1000
+2000
+3000
+5000
+10000
+15000
+25000
+35000
+
+Error without denoising (%) Error with denoising (%)
+
+74.45 ± 0.81
+71.01 ± 2.00
+67.86 ± 1.46
+64.98 ± 1.21
+54.70 ± 1.14
+50.30 ± 0.47
+47.65 ± 0.37
+45.40 ± 0.33
+
+64.82 ± 1.14
+61.25 ± 0.90
+58.30 ± 0.66
+56.24 ± 2.03
+49.64 ± 0.50
+47.34 ± 0.41
+45.14 ± 0.43
+43.21 ± 0.20
+
+Table 2: Classification error rates (%) on noisy and denoised CIFAR-10 images for varying training
+set sizes Ntrain. The noise level is σ = 0.4, γ = 1, and the denoiser is trained using MSE loss.
+
+Figure 4 shows the classification error vs. the training epoch in a single trial for noise level 0.25,
+γ = 1 and 35,000 training images. It demonstrates that the classifier does not suffer from overfitting.
+
+(a) Noisy data
+
+(b) Denoised data
+
+Figure 4: Training and testing error as a function of epochs for (a) noisy data and (b) denoised data.
+The noise level is σ = 0.25, γ = 1, and Ntrain = 35,000. The denoiser is trained using MSE loss.
+
+49
+
+(a) σ = 0.25, γ = 1
+
+(b) σ = 0.4, γ = 1
+
+(c) σ = 0.25, γ = 0.75
+
+(d) σ = 0.4, γ = 0.75
+
+(e) σ = 0.25, γ = 0.5
+
+(f) σ = 0.4, γ = 0.5
+
+Figure 5: Practical deep learning setup with noisy CIFAR-10 and SURE-based denoiser. Efficiency
+of the data processing procedure versus the number of training samples for various values of the
+training imbalance factor, γ, and the standard deviation of the noise, σ.
+
+D ADDITIONAL EMPIRICAL DETAILS AND RESULTS (MINI-IMAGENET,
+
+ENCODING)
+
+D.1 EXPERIMENTS COMPUTE RESOURCES
+
+We conducted our experiments using 16 NVIDIA Tesla V100-SXM2 GPUs with 32GB memory, 12
+NVIDIA RTX 6000 Ada Generation GPUs with 48GB memory, and 2 NVIDIA A100 PCIe GPUs
+with 80GB memory. The training time for each data point in Figures 3 and 7 ranged from 10 hours to
+30 hours, depending on the number of training samples.
+
+50
+
+(a) σ = 0.25, γ = 0.75
+
+(b) σ = 0.4, γ = 0.75
+
+(c) σ = 0.25, γ = 0.5
+
+(d) σ = 0.4, γ = 0.5
+
+Figure 6: Practical deep learning setup with noisy CIFAR-10 and MSE-based denoiser. Efficiency of
+the data processing procedure versus the number of training samples for various values of the training
+imbalance factor, γ ∈ {0.5, 0.75}, and the standard deviation of the noise, σ.
+
+D.2 TRAINING THE CLASSIFIER
+
+We consider the Mini-ImageNet dataset and the ResNet50 model. To train the model, we use: batch
+size 128 and 225 epochs; cross-entropy loss; SGD optimizer; learning rate: 0.0679; learning rate
+decay: 0.1 at epochs 75 and 150; momentum: 0.9; weight decay: 0.0005. This setting yields 73%
+accuracy for clean data.
+
+Per noise level σ ∈ {
+use this setting to train one classifier that operates directly on the noisy data.
+
+} of the additive Gaussian noise that has been added to the data, we
+
+,
+
+50
+255
+
+100
+255
+
+D.3 TRAINING THE ENCODER
+
+For self-supervised learning, we adopt the DINOv2 framework (Lu et al., 2025). The student encoder
+is a Vision Transformer (ViT-S/16), which splits each input image of size 224×224 into 16×16
+patches and produces a 384-dimensional [CLS] token representation. This is passed through a 3-layer
+MLP projection head to produce the final 256-dimensional embedding (z ∈ R256), which is used
+for self-supervised training. The teacher network has the same architecture and is updated as an
+exponential moving average of the student, providing stable target embeddings. Training is performed
+on the Mini-ImageNet dataset for 200 epochs with a per-GPU batch size of 40. We apply the AdamW
+optimizer with a base learning rate of 0.004 (scaled with the square root of the effective batch
+size), β = (0.9, 0.999), weight decay scheduled from 0.04 to 0.4, and gradient clipping at 3.0. The
+teacher momentum is linearly increased from 0.992 to 1.0 over training. Multi-crop augmentation is
+employed with 2 global crops of size 224×224 and 8 local crops of size 96×96. Model evaluation is
+conducted every 6,250 iterations.
+
+51
+
+(a) σ = 50
+
+255 , γ = 0.75
+
+(b) σ = 100
+
+255 , γ = 0.75
+
+(c) σ = 50
+
+255 , γ = 0.5
+
+(d) σ = 100
+
+255 , γ = 0.5
+
+Figure 7: Practical deep learning setup with noisy Mini-ImageNet and pre-classification encoding.
+Efficiency of the data processing procedure versus the number of training samples for various values
+of the training imbalance factor, γ ∈ {0.5, 0.75}, and the standard deviation of the noise, σ.
+
+D.4 TRAINING AN MLP ON TOP OF THE EMBEDDINGS
+
+50
+255
+
+100
+255
+
+,
+
+Per noise level σ ∈ {
+}, after training the DINOv2 encoder, we pass the noisy Mini-
+ImageNet images through the encoder to obtain 256-dimensional embeddings. On top of these
+embeddings, we train a multi-layer perceptron (MLP) classifier to perform image classification.
+The MLP consists of three hidden layers with dimensions 4096, 2048, and 1024, each followed by
+LayerNorm and GELU activation, and a final linear layer mapping to the number of classes (i.e. 100).
+Hidden layers are initialized with Xavier uniform, and the final layer with a small normal distribution.
+
+To train the model, we use: per-GPU batch size 128 and 20 epochs, with 1250 iterations per epoch;
+cross-entropy loss; SGD optimizer with a cosine annealing learning rate schedule; momentum: 0.9;
+no weight decay. Linear evaluation is performed with periodic check-pointing and evaluation on the
+validation set. After training, the classifier is evaluated on the test set to report final accuracy.
+
+The results for the setup with γ < 1 are presented in Figure 7. It can be seen that they resemble the
+results in 3: 1) similar non-monotonicity of the curve while remaining positive, and 2) the maximal
+efficiency increases with the SNR, for fixed γ.
+
+D.5 NUMERICAL ACCURACY RESULTS
+
+In the following Tables 3 and 4 we report accuracy results related to Figure 3. Lastly, in Figure 8 we
+present an image of noisy data for σ ∈ {50/255, 100/255}, to show that the noise is not too-severe.
+
+E ADDITIONAL EMPIRICAL DETAILS AND RESULTS (CIFAR-10, ENCODING)
+
+We investigate the CIFAR-10 dataset and the ResNet18 model. Both the training and test sets are
+subjected to additive Gaussian noise with standard deviations σ ∈ {0.25, 0.4}. This time, as the
+
+52
+
+Ntrain
+5000
+10000
+20000
+30000
+40000
+50000
+
+Error without encoding (%) Error with encoding (%)
+
+80.03 ±1.25
+74.56 ±1.12
+58.81 ±0.45
+49.92 ±0.8
+44.95 ±1.37
+40.07 ±0.58
+
+48.67 ±0.48
+45.03 ±0.27
+41.45 ±0.29
+39.23 ±0.39
+37.99 ±0.31
+36.62 ±0.25
+
+Table 3: Classification error rates (%) on noisy and encoded Mini-ImageNet images for varying
+training set sizes Ntrain. The noise level is σ = 50
+
+255 , γ = 1.
+
+Ntrain
+5000
+10000
+20000
+30000
+40000
+50000
+
+Error without encoding (%) Error with encoding (%)
+
+85.5 ±0.95
+79.71 ±1.73
+68.47 ±2.15
+58.39 ±1.77
+54.62 ±0.08
+50.01 ±0.56
+
+60.94 ±0.25
+57.28 ±0.23
+53 ±0.27
+50.92 ±0.31
+49.35 ±0.34
+48.23 ±0.27
+
+Table 4: Classification error rates (%) on noisy and encoded Mini-ImageNet images for varying
+training set sizes Ntrain. The noise level is σ = 100
+
+255 , γ = 1.
+
+(a) clean
+
+(b) σ = 50
+255
+
+(c) σ = 100
+255
+
+Figure 8: Clean and noisy Mini-ImageNet images. (a) Clean image. (b) Image with Gaussian noise
+σ = 50
+
+255 . (c) Image with Gaussian noise σ = 100
+255 .
+
+53
+
+(a) σ = 0.25, γ = 1
+
+(b) σ = 0.4, γ = 1
+
+Figure 9: Noisy CIFAR-10 and pre-classification encoding. Efficiency versus Ntrain.
+
+Figure 10: The theoretical setup. Efficiency of the data processing procedure versus the number of
+training samples Ntrain, for various values of the training imbalance factor γ, and SNR of S = 1.
+
+data processing procedure we use an encoding step that maps each image (rescaled from its original
+CIFAR-10 resolution to 224 × 224) into a 256-dimensional embedding. This encoder model follows
+(Lu et al., 2025) and is trained from scratch with self-supervision on 45000 noisy unlabeled images
+for each noise level. Then, for each combination of (σ, Ntrain), considering the balanced case of
+γ = 1, we divide Ntrain equally among all 10 classes. Then, we train a ResNet18 model on the noisy
+images across 6 seeds and, in parallel, a small MLP on the corresponding embeddings across 3 seeds.
+After we have the mean of the probability of error before and after the data processing, we compute
+the empirical efficiency, i.e., the relative percentage change in the probability of error induced by
+the encoding step. Details of the training procedures for the ResNet18 and the MLP are provided in
+Appendix C and D, respectively.
+
+Figure 9 presents the efficiency versus Ntrain, for γ = 1. We see the same trends that are aligned with
+our theory as before: 1) similar non-monotonicity of the curve (increase to a maximal efficiency value
+and then decrease) while remaining positive, and 2) the maximal efficiency increases with the SNR.
+
+F EXTENDED EMPIRICAL VERIFICATION
+
+In this section, we extend our empirical verification. In Figure 10, we simulate the theoretical setup,
+as in 3.3 (we use d = 2000, k = 1000 and σ = 1), but with S = 1. We see that the empirical
+efficiency coincides with the theoretical efficiency.
+
+We now examine the effect of S on efficiency. We fix γ = 1, d = 2000, k = 1000 and vary
+S ∈ {0.52, 1, 1.52}. The results are presented in Figure 11. Let us discuss the results. We see that for
+Ntrain ≫ 1 (in the right Figure), for larger SNR (lower noise level), the efficiency decreases. However,
+
+54
+
+(a) Ntrain ≤ 10, 000
+
+(b) 10, 000 ≤ Ntrain ≤ 50, 000
+
+Figure 11: Extended simulation of the theoretical setup. Efficiency of the data processing versus the
+number of training samples Ntrain, for γ = 1, and various values of the SNR, S, for (a) low samples
+regime, and (b) high samples regime.
+
+Figure 12: The theoretical setup. Efficiency of the data processing procedure versus the number of
+training samples Ntrain, for various values of the training imbalance factor, γ, and SNR of S = 1.
+
+as 8 suggests, when the number of samples is limited, and for larger SNR (lower noise level), the
+efficiency increases. We notice this phenomenon in the left Figure, presenting low Ntrain, compared
+to the right Figure. First, the efficiency increases with the SNRs, and then as Ntrain gets larger, the
+dependency flips. We also see a different behavior that sheds more light on this conclusion: the
+difference between different SNRs is larger in the low-samples region than the inverse relation in
+the high-samples region. This concludes the non-monotonic and non-intuitive dependency of the
+efficiency on the SNR.
+
+In addition, we examine the effect of d − k on efficiency. We fix γ = 1, d = 2000, S = 1 and vary
+k ∈ {500, 1000, 1500}. The results are presented in Figure 12. We see that larger d − k corresponds
+to greater accuracy. Theorem 7 proves this for Ntrain ≫ 1, but we see that this is true even for small
+Ntrain. Indeed, intuitively, reducing more dimensions is advantageous in terms of efficiency. This
+suggests that there is a direct monotonic relationship between the efficiency and d − k.
+
+We now consider the same setting as in the empirical verification (d = 2000, k = 1000, σ = 1,
+γ ∈ {0.25, 0.5, 1}, S ∈ {0.752, 1, 1.52}), but per Ntrain, the data processing matrix A is learned
+from 50,000 unlabeled samples using the algorithm described in the proof of Theorem 3. The
+corresponding results are shown in Figure 13, demonstrating the same trends as the theoretical
+efficiency. Moreover, as the number of unlabeled samples tends to infinity, the two curves coincide.
+To illustrate this, we also present results for the case that per Ntrain, the data processing matrix A
+is learned from 5,000,000 unlabeled samples in Figure 14. Notice that as the amount of unlabeled
+samples available grows, the gap between the theoretical efficiency and the empirical efficiency is
+reduced.
+Finally, we visualize the action of A : R2 → R on the GMM data in Figure 15. While our analysis
+considers the regime d > k ≫ 1, as is common in practice, we use small values of d = 2 and k = 1
+to enable visualization.
+
+Recall that the plug-in classifier, before and after the data processing, depends only on the distance
+of a test sample from each of the empirical means. Without processing, these empirical means
+are given by (cid:98)µj = 1
+xi,j and hence distributed as (cid:98)µj ∼ N
+
+. Similarly, after
+
+µj, σ2
+Nj
+
+Id
+
+Nj
+
+(cid:16)
+
+(cid:17)
+
+(cid:88)Nj
+i=1
+
+55
+
+(a) S = 0.752
+
+(b) S = 1
+
+(c) S = 1.52
+
+Figure 13: Extended empirical verification - per Ntrain, A is learned from 50,000 unlabeled examples.
+Presented for (a) S = 0.752, (b) S = 1 and (c) S = 1.52.
+
+processing by A : Rd → Rk, the empirical means obey A (cid:98)µj ∼ N
+semi-orthonormality AA⊤ = Ik is used. Consequently,
+
+(cid:16)
+
+Aµj, σ2
+Nj
+
+Ik
+
+(cid:17)
+
+, where the
+
+E
+
+(cid:104)
+
+∥ (cid:98)µj − µj∥2(cid:105)
+
+=
+
+d
+(cid:88)
+
+i=1
+
+E
+
+(cid:104)
+
+([ (cid:98)µj]i − [µj]i)2(cid:105)
+
+=
+
+d
+(cid:88)
+
+i=1
+
+σ2
+Nj
+
+=
+
+σ2
+Nj
+
+d
+
+where we used [ (cid:98)µj]i − [µj]i ∼ N
+
+(cid:17)
+
+(cid:16)
+0, σ2
+Nj
+
+. Similarly, E
+
+(cid:104)
+
+∥A (cid:98)µj − Aµj∥2(cid:105)
+
+=
+
+σ2
+Nj
+
+k.
+
+The data processing lowers the dimension from d to k, and thus improves the average squared error
+of the mean estimator by
+
+σ2
+N
+
+(d − k) > 0.
+
+Since the classifier, before and after the data processing, depends only on the distance of the test
+sample from each of the empirical means, its accuracy increases when the accuracy of the empirical
+means improves while the distance between the means of the difference classes does not significantly
+reduce (i.e., ∥A (cid:98)µ2 − A (cid:98)µ1∥ ≈ ∥ (cid:98)µ2 − (cid:98)µ1∥ ). The latter is accounted for by the property ∥Aµ∥ = ∥µ∥
+of the operator.
+
+Note that this behavior is observed in Figure 15:
+
+• In the red class, the distance between the empirical mean and the real mean is 0.4632 before
+
+applying A and 0.39 after applying A.
+
+• In the blue class, the distance between the empirical mean and the real mean is 0.439 before
+
+applying A and 0.38 after applying A.
+
+• The distance between the empirical means of the different classes is 4.0374 before applying
+A and 4.01 after applying A. Indeed, both are close to the distance between the real means,
+which is 4.
+
+56
+
+(a) S = 0.752
+
+(b) S = 1
+
+Figure 14: Extended empirical verification - per Ntrain, A is learned from 5,000,000 unlabeled
+examples. Presented for (a) S = 0.752, (b) S = 1 and (c) S = 1.52.
+
+(c) S = 1.52
+
+That is, A preserves the separation quality of the classes, while improving the estimation quality of
+µ.
+
+57
+
+(a) The original data, sampled from GMM in R2 with µ1 = −µ2 = (2, 0)⊤, σ = 1, and Ntrain = 30. The true
+means {µ1, µ2} are marked by black ‘X’s and the empirical means { ˆµ1, ˆµ2} are marked by green diamonds.
+The learned decision boundary is marked by the dashed line (determined by the distance to the empirical means).
+
+(b) The data after applying A ∈ R1×2 (in this case, projection onto the x-axis). As before, the true means
+{Aµ1, Aµ2} are marked by black ‘X’s and the empirical means {A ˆµ1, A ˆµ2} are marked by green diamonds.
+
+Figure 15: Visualization of the effect of A : R2 → R. Note that the empirical means (green
+diamonds) are closer to the true means (black ‘X’s) after the operation A. The distance between the
+empirical means of the different classes remains similar.
+
+58
+
+

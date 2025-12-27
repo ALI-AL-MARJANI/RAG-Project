@@ -1,0 +1,5674 @@
+5
+2
+0
+2
+
+c
+e
+D
+4
+2
+
+]
+
+G
+L
+.
+s
+c
+[
+
+1
+v
+8
+8
+2
+1
+2
+.
+2
+1
+5
+2
+:
+v
+i
+X
+r
+a
+
+Model Merging via Multi-Teacher Knowledge
+Distillation
+
+Seyed Arshan Dalili
+
+Mehrdad Mahdavi
+
+The Pennsylvania State University
+{sbd5760,mzm616}@psu.edu
+
+Abstract
+
+Model merging has emerged as a lightweight alternative to joint multi-task learning (MTL),
+yet the generalization properties of merged models remain largely unexplored. Establishing such
+theoretical guarantees is non-trivial, as the merging process typically forbids access to the original
+training data and involves combining fine-tuned models trained on fundamentally heterogeneous
+data distributions. Without a principled understanding of these dynamics, current methods often
+rely on heuristics to approximate the optimal combination of parameters. This dependence is most
+critical in coefficient scaling, the weighting factors that modulate the magnitude of each fine-tuned
+model’s contribution to the shared parameter. However, without a principled objective to guide their
+selection, these methods lead to brittle performance and are highly sensitive to scaling initialization.
+We address this gap by (i) establishing a novel flatness-aware PAC-Bayes generalization bound
+specifically for the model merging setting. This analysis introduces a “cross-task heterogeneity”
+term that formally captures the mismatch between diverse fine-tuned model priors and the target
+multi-task distributions. Guided by this theoretical insight, (ii) we frame model merging as multi-
+teacher knowledge distillation on scarce, unlabeled data. We formally demonstrate that minimizing
+the student-teacher Kullback-Leibler divergence directly tightens the upper bound on the merged
+model’s excess risk. Guided by the flatness-aware bound derived, (iii) we operationalize this objective
+via SAMerging, a method that employs Sharpness-Aware Minimization (SAM) to find flat minima.
+Empirically, SAMerging establishes a new state of the art across vision and NLP benchmarks,
+achieving remarkable performance with orders-of-magnitude greater data efficiency, requiring as few
+as 16 examples per task, while incurring no additional inference or memory overhead. The code is
+available at https://github.com/arshandalili/SAMerging.
+
+1
+
+Introduction
+
+The pretrain-fine-tune paradigm has become the dominant approach for obtaining models that can solve
+various tasks in fields like Natural Language Processing (NLP) and Computer Vision (CV). Recently,
+due to the increasing use of these models in resource-limited devices, there has been growing interest in
+developing models that can handle multiple tasks simultaneously. One line of research, namely model
+merging, leverages the existing fine-tuned models to achieve the multi-task model’s parameters [Ilharco
+et al., 2023, Matena and Raffel, 2022, Wortsman et al., 2022]. Model merging seeks to combine fine-
+tuned models into a single model that retains the specialized capabilities of each task-specific fine-tuned
+model [Breiman, 1996, Chen and Guestrin, 2016, Ganaie et al., 2022], without the need to run multiple
+constituent models, so both inference cost and memory cost will be in O(1) instead of O(n) for n tasks
+[Yang et al., 2024a]. Moreover, due to limited data access, privacy concerns, and high fine-tuning costs,
+model merging is gaining interest, especially in privacy-preserving settings like federated learning [Tao
+et al., 2025, Liu et al., 2024a, Chen et al., 2025, Salami et al., 2025, Tsouvalas et al., 2025].
+
+One line of methods in model merging is based on the notion of “task arithmetic” [Ilharco et al., 2023],
+which treats each fine-tuned model’s offset from the pretrained weights as a task vector. Scaling and
+summing these vectors across tasks can yield a multi-task model with performance comparable to a
+fine-tuned model. This insight has inspired numerous merging methods [Ortiz-Jimenez et al., 2023, Yadav
+et al., 2023, Yang et al., 2023] and theory on when it succeeds [Li et al., 2025, Zhou et al., 2024, Wang
+
+1
+
+ 
+ 
+ 
+ 
+ 
+ 
+Figure 1: Sensitivity to merge scaling and initialization. On TA-8, we compare merge scaling
+(TA/TIES) and initialization (AdaMerging/SAMerging). While designed to learn coefficients, AdaMerg-
+ing’s performance is sensitive to initialization, suggesting its objective/optimizer is a bottleneck. In
+contrast, SAMerging attains higher and more stable accuracy across the range.
+
+and Wang, 2024]. However, performance of these methods is highly sensitive to the scaling coefficients
+(see Fig. 1), even for approaches like AdaMerging that aim to learn the merging coefficients [Yang et al.,
+2023]. This motivates more principled ways to learn these coefficients for stronger generalization.
+
+Flatter loss landscapes have long been associated with better generalization [Hochreiter and Schmid-
+huber, 1997, Neyshabur et al., 2017, Petzka et al., 2021, Andriushchenko et al., 2023, Yue et al., 2023,
+Haddouche et al., 2025], inspiring metrics and algorithms such as Sharpness-Aware Minimization (SAM),
+which explicitly seeks wider minima to improve generalization [Foret et al., 2021]. In multi-task learning
+(MTL), classical theory attributes gains to shared representations and inductive biases [Caruana, 1997,
+Baxter, 2000, Argyriou et al., 2006, Maurer et al., 2016, Zhang and Yang, 2021, Zakerinia et al., 2025], yet
+heterogeneous tasks often suffer negative transfer and interference [Tsouvalas et al., 2025, Zakerinia and
+Lampert, 2025]. These observations suggest that solution geometry, favoring flatter minima, can mitigate
+cross-task interference by reducing sensitivity to parameter perturbations and stabilizing shared features,
+thereby improving MTL generalization [Dai and Zhu, 2020, Dinh et al., 2017, Andriushchenko et al., 2023].
+It is thus natural to explore flatness-aware optimization (e.g., SAM) for MTL fine-tuning and merging;
+Lee et al. [2025] takes a step in this direction by modifying the fine-tuning stage to encourage flatter
+optima for individual tasks, thereby reducing sensitivity to perturbations introduced during merging.
+Alternatively, [Zhang et al., 2025] leverages optimizer-induced implicit bias to control the effective noise
+scale to shape the merging landscape geometry for effective merging. Although effective, these approaches
+treat tasks uniformly and do not explicitly account for the heterogeneity across tasks.
+
+Motivated by the limitations of the abovementioned approaches that either learn or estimate the
+merging coefficients, or modify the fine-tuning procedure in isolation, we introduce a new perspective on
+model merging grounded in generalization theory. Specifically, we derive a PAC-Bayes generalization bound
+that explicitly links the generalization performance of the merged model to the flatness of its loss basin.
+Inspired by the emerging links between flatness [Haddouche et al., 2025], multi-task learning [Zakerinia
+and Lampert, 2025], and AdaMerging [Yang et al., 2023], we propose SAMerging, a novel method that
+merges fine-tuned models while explicitly seeking flatter solutions. Unlike previous approaches, SAMerging
+is designed to retain task-specific performance while promoting generalization through geometry-aware
+merging. It achieves state-of-the-art results across diverse tasks in CV and NLP and remains robust
+under variations in data size and task count. In summary, our contributions are:
+
+• The central contribution of the present work is a new PAC-Bayes generalization bound for multi-task
+model merging, which formally captures the gap between two paradigms: merging independently
+fine-tuned models (a mixture of models) versus jointly training on a mixture of data. This bound
+introduces a novel discrepancy term that quantifies how merging diverges from standard multi-task
+learning, offering a principled lens through which to analyze and improve merging strategies.
+
+2
+
+0.10.20.30.40.50.60.70.80.91.0Scaling factor / Initial value2030405060708090Average accuracy (%)Task ArithmeticTies-MergingAdaMergingSAMergingMTL Baseline• Building on this insight, we propose a new merging objective inspired by multi-teacher knowledge
+distillation. Specifically, we minimize the Kullback-Leibler (KL) divergence between the merged
+model and each task fine-tuned model to align the merged model’s behavior with each fine-tuned
+model on its respective task. This approach not only aligns with our theoretical analysis but also
+outperforms entropy-based merging criteria such as those used in AdaMerging [Yang et al., 2023].
+
+• Finally, motivated by the PAC-Bayes connection between generalization and flatness, we incorporate
+sharpness-aware minimization into the merging process. This promotes flatter solutions during
+optimization, leading to further gains in performance. Our ablation studies show that the KL-
+based objective and SAM contribute complementary benefits, with their combination yielding
+state-of-the-art results across both vision and language tasks.
+
+2 Related Work
+Joint training for multi-task learning (MTL) Joint training for MTL aggregates data from different
+tasks to learn them jointly. This method enables knowledge transfer with inductive bias and shared
+representations [Caruana, 1997, Baxter, 2000, Wu et al., 2023]. Prior work tries to tackle this problem
+by working either on the (i) architecture of the models or (ii) training and optimization regime. On the
+architecture, work includes refining cross-task coupling [Misra et al., 2016], selective sharing [Sun et al.,
+2020], and mixture-of-experts to learn which experts to share per task [Hazimeh et al., 2021, Tang et al.,
+2020]. On the training and optimization, it focuses on mitigating gradient conflicts [Yu et al., 2020, Liu
+et al., 2024b, Quinton and Rey, 2025], adjusting training weights [Kendall et al., 2018, Chen et al., 2018],
+or formulating MTL as multi-objective optimization to seek Pareto-optimal trade-offs with convergence
+guarantees and controllable preferences [Lin et al., 2019, Shamsian et al., 2023]. Joint MTL can boost
+efficiency and generalization, but in the foundation-model era, it is often impractical to pool raw data
+and update large backbones due to compute and privacy constraints. Meanwhile, the rise of fine-tuned
+models on platforms like Hugging Face motivates post-hoc model merging, shifting heterogeneity and
+task-interference challenges from data to models.
+
+Model merging for MTL In contrast to joint MTL, model merging fuses multiple task-specific
+fine-tuned models into one MTL model [Yang et al., 2024a]. Data-free approaches include simple weight
+averaging/model soups [Wortsman et al., 2022] and task arithmetic (TA) [Ilharco et al., 2023]. TA has led
+to numerous new methods for merging data-free approaches, such as TIES-Merging [Yadav et al., 2023],
+DARE [Yu et al., 2024], PCBMerging [Du et al., 2024], and Isotropic Merging [Marczak et al., 2025].
+Beyond data-free merging, data-dependent methods use unlabeled samples per task for a one-time offline
+calibration. The deployed model remains a single network with no extra parameters. Concretely, Fisher
+Merging estimates Fisher information from gradients on unlabeled data to make the Fisher Information
+Matrix (FIM) [Matena and Raffel, 2022] and uses that as the weight for merging; RegMean/RegMean++
+compute feature inner-product Gram to regularize averaging [Jin et al., 2025, Nguyen et al., 2025],
+and AdaMerging learns (layer-/task-wise) merge coefficients by minimizing entropy [Yang et al., 2023].
+By contrast, methods that learn per-task heads/masks/adapters introduce inference-time compute and
+memory overhead [Yang et al., 2024b] and are not the focus of this work. In deployed settings, models
+already see inputs from target domains, so calibrating on a handful of unlabeled samples is a far weaker
+assumption than joint MTL’s requirement for pooled training data. We thus trade minimal label-free
+calibration for zero inference overhead. We achieve this by demonstrating that SAMerging will reach
+state-of-the-art performance by utilizing as few as one batch of size 16 for each task. After calibration,
+one backbone serves all tasks with Θ(1) memory and latency, whereas ensembles, adapters, or per-task
+heads/masks incur runtime and memory costs [Yang et al., 2024b].
+
+Fine-tuning for mergeability vs. post-hoc merging. Beyond the choice of merging method, prior
+work differs in whether it (i) modifies the fine-tuning stage to produce more mergeable fine-tuned models
+for tasks, or (ii) assumes fine-tuned models for tasks are already trained and then performs post-hoc
+merging. The former explicitly shapes the fine-tuning trajectory so that task-specific checkpoints fall into
+a shared, broad low-loss basin, often evidenced by almost-linear low-loss paths between independently
+obtained solutions, thereby improving the reliability of subsequent weight-space merging [Ainsworth et al.,
+2023, Zhou et al., 2024]. Concretely, this can be done via sharpness-aware fine-tuning [Lee et al., 2025],
+
+3
+
+Jacobian/NTK-based regularization [Yoshida et al., 2024] along with linearized fine-tuning to promote
+weight disentanglement [Ortiz-Jimenez et al., 2023], or by controlling optimizer-induced implicit bias that
+shapes the merging landscape geometry [Zhang et al., 2025]. In this paper, we focus on the post-hoc
+setting where only the final fine-tuned model checkpoints are available. As formalized by Theorem 2,
+our PAC-Bayes generalization bound makes fine-tuned models’ mergeability a principled criterion for
+predicting when post-hoc merging should succeed.
+
+Knowledge distillation We cast model merging as multi-teacher knowledge distillation [Hinton et al.,
+2015, Yang et al., 2023, Xu et al., 2025]: compress an ensemble of experts into a single student by
+minimizing the KL divergence between the ensemble’s soft predictive distribution and the student’s
+outputs on unlabeled data, as in [Hinton et al., 2015]. This function-space target is robust to weight
+misalignment and permutations. In contrast to element-wise, feature-level merging [Xu et al., 2025], we
+analyze the merged model’s predictive distribution, which enables explicit excess-risk guarantees.
+
+MTL Flatness and Generalization Extensive evidence links flatter minima to better generalization
+and robustness, and PAC-Bayesian analysis formalizes the link such that when weight posterior concen-
+trates in a broad low-loss region, complexity terms shrink, yielding non-vacuous bounds [Neyshabur et al.,
+2017, Petzka et al., 2021, Dziugaite and Roy, 2017]. Sharpness-aware Minimization (SAM) [Foret et al.,
+2021] achieves flatter minima by penalizing the worst-case loss in a neighborhood, thereby improving
+generalization across architectures and tasks while demonstrating robustness to label noise [Baek et al.,
+2024] and quantization [Na et al., 2022], making it an ideal choice for our merging settings where we don’t
+have access to training data or labels. In MTL settings, as we demonstrate, favoring flat basins reduces
+cross-task sensitivity, allowing the merged model to generalize better.
+
+3 Methodology
+
+We develop SAMerging in three steps. First, we analyze the generalization of a merged model through a
+PAC-Bayes lens, which reveals a cross-task heterogeneity term that precisely captures fine-tuned model
+and task mismatch. The bound suggests that better generalization may be achieved in flatter loss basins.
+Second, we cast model merging as multi-teacher knowledge distillation on a small, unlabeled calibration
+set; as shown, minimizing the KL divergence of the merged and fine-tuned model directly tightens an
+upper bound on the merged model’s excess MTL risk. Third, we operationalize this objective with
+Sharpness-Aware Minimization (SAM), which seeks flatter basins that enable the merged model to
+generalize better across tasks. Together, these pieces yield a data-efficient, label-free procedure that avoids
+inference overhead. All proofs for the lemmas, propositions, and theorems are deferred to Appendix B.
+
+3.1 Generalization of the merged model
+
+We start by establishing the generalization of the post-hoc merged model through a PAC-Bayes analysis.
+Notation and setup. Let [T ] = {1, . . . , T }. Each task t is associated with a distribution Dt over
+Z = X × Y and an i.i.d. sample St = {(x(t)
+i=1 ∼ Dt. Let fθ : X → (cid:98)Y be a model with parameters
+i
+θ ∈ Θ, and let ℓ : (cid:98)Y × Y → [0, 1] be γ-smooth and convex in the model scores. For task t, define the
+population and empirical risks
+
+i )}nt
+
+, y(t)
+
+LDt(θ) = E(x,y)∼Dt
+
+(cid:2)ℓ(fθ(x), y)(cid:3),
+
+(cid:98)LSt(θ) =
+
+1
+nt
+
+nt(cid:88)
+
+i=1
+
+ℓ(cid:0)fθ(x(t)
+
+i ), y(t)
+
+i
+
+(cid:1).
+
+Evaluation mixture. Let α ∈ ∆T −1 denote the weights of the evaluation mixture across tasks. We
+write
+
+Lα(θ) =
+
+T
+(cid:88)
+
+t=1
+
+αt LDt (θ),
+
+(cid:98)Lα(θ) =
+
+T
+(cid:88)
+
+t=1
+
+αt (cid:98)LSt(θ).
+
+Joint multi-task learning would directly minimize (cid:98)Lα(θ) using pooled data. In contrast, in model merging
+are available.
+we assume only a pretrained checkpoint θ0 and task-specific fine-tuned checkpoints {θt}T
+
+t=1
+
+4
+
+Post-hoc merging objective. Define the task vector τt = θt − θ0. Following task arithmetic, we
+parameterize a merged model via layer-wise coefficients λ = {λl
+
+t}t,l:
+
+λ = θ l
+θ l
+
+0 +
+
+T
+(cid:88)
+
+t=1
+
+t τ l
+λ l
+t ,
+
+θmerge = θλ⋆ , λ⋆ ∈ arg min
+λ
+
+(cid:98)Lα(θλ).
+
+PAC-Bayes view of merging. To study generalization, we work with distributions over parameters.
+Let P = N (µP , ΣP ) be a data-free prior on Θ, and for each task t let Qt = N (µt, Σt) be a task-dependent
+posterior. For any posterior Q, define LDt(Q) = Eθ∼Q[LDt(θ)] (and similarly (cid:98)LSt(Q)). We analyze a
+mixture posterior
+
+Qmerge :=
+
+T
+(cid:88)
+
+t=1
+
+βtQt,
+
+β ∈ ∆T −1,
+
+which can be interpreted as a randomized predictor that samples Qt with probability βt. Importantly, β
+is introduced only for analysis; it may be distinct from the algorithmic merging coefficients λ used to
+construct θmerge.
+Flatness proxy. To make the bound sensitive to basin geometry, we use a squared-gradient proxy for
+flatness. For task t,
+
+GDt(θ) = E(x,y)∼Dt
+
+(cid:104)(cid:13)
+(cid:13)∇θℓ(cid:0)fθ(x), y(cid:1)(cid:13)
+2
+(cid:13)
+2
+
+(cid:105)
+
+,
+
+(cid:98)GSt(θ) =
+
+1
+nt
+
+nt(cid:88)
+(cid:13)
+(cid:13)∇θℓ(cid:0)fθ(x(t)
+(cid:13)
+
+i ), y(t)
+
+i )(cid:1)(cid:13)
+2
+(cid:13)
+(cid:13)
+2
+
+i=1
+
+,
+
+and for a posterior Q over Θ,
+
+GDt(Q) = E(x,y)∼Dt
+
+(cid:104)
+
+Eh∼Q
+
+(cid:13)∇hℓ(cid:0)fh(x), y(cid:1)(cid:13)
+(cid:13)
+2
+(cid:13)
+2
+
+(cid:105)
+
+,
+
+(cid:98)GSt(Q) =
+
+1
+nt
+
+nt(cid:88)
+
+i=1
+
+Eh∼Q
+
+(cid:13)
+(cid:13)∇hℓ(cid:0)fh(x(t)
+(cid:13)
+
+i ), y(t)
+
+i )(cid:1)(cid:13)
+2
+(cid:13)
+(cid:13)
+2
+
+.
+
+We begin with a basic but useful observation: the risk of a mixture posterior is the corresponding mixture
+of risks.
+
+Lemma 1. For any task t and posteriors {Qj}T
+
+j=1, if Qmerge = (cid:80)
+
+j βjQj, then
+
+LDt (Qmerge) =
+
+T
+(cid:88)
+
+j=1
+
+βj LDt(Qj).
+
+Proposition 1. The multi-task risk Lα(Qmerge) can be decomposed as
+
+Lα(Qmerge) =
+
+T
+(cid:88)
+
+j=1
+
+βj LDj (Qj) +
+
+T
+(cid:88)
+
+T
+(cid:88)
+
+j=1
+
+i=1
+(cid:124)
+
+αiβj
+
+(cid:0)LDi(Qj) − LDj (Qj)(cid:1)
+
+(cid:123)(cid:122)
+:=HQ(α,β)
+
+(cid:125)
+
+The cross-task heterogeneity term HQ(α, β) measures how much worse fine-tuned model Qj performs
+on Di compared to its own domain Dj. It vanishes if Di coincide as in the single-task setting or Qj ≡ Q
+for all j as in a joint-trained MTL model. Now, we bound the (cid:80)T
+j=1 βj LDj (Qj) using the following
+theorem.
+
+Theorem 1. Fix nonnegative {δt}T
+data-free prior P = N (µP , ΣP ), any loss ℓ : (cid:98)Y × Y → [0, 1], with probability at least 1 − δ over {St}T
+from {Dt}T
+
+t=1 δt ≤ 1. For any ηt ∈ (0, 2) for each task t, any
+
+t=1 with |St| = nt, for all Qt := N (θt, Σt),
+
+t=1 such that δ = (cid:80)T
+
+t=1
+
+Lα(Qmerge) ≤
+
+(cid:34)
+
+T
+(cid:88)
+
+t=1
+
+βt
+
+1
+1 − ηt
+2
+
+(cid:32)
+
+ˆLSt(Qt) +
+
+DKL(Qt∥P ) + log( 1
+δt
+ηtnt
+
+(cid:33)
+)
+
++
+
+ηt
+2 − ηt
+
+(cid:35)
+
+∥Σt∥ GDt(Qt)
+
+T
+(cid:88)
+
+T
+(cid:88)
+
++
+
+i=1
+
+j=1
+
+αiβj
+
+(cid:0)LDi(Qj) − LDj (Qj)(cid:1).
+
+5
+
+The bound on Lα(Qmerge) decomposes into three parts: (i) per-task PAC-Bayes terms that require
+each fine-tuned model Qt to generalize on its own domain, (ii) a flatness penalty GDt(Qt), which is small
+when the loss landscape is flat, and (iii) the cross-task heterogeneity which captures transfer mismatch
+across tasks. Hence, excess risk is controlled when fine-tuned models are accurate in their own domains.
+Fine-tuned models occupy flat basins with methods that encourage flatter minima and thus reduce
+GDt(Qt), and a small cross-task heterogeneity term.
+Going from posterior bound to a single model. To pass from posterior-level guarantees to a single
+model in a non-convex landscape, we linearize the network at the pretrained point θ0 (NTK approximation
+as done in Jacot et al. [2020], Ortiz-Jimenez et al. [2023]). Let
+
+Φ(x) := ∇θfθ0 (x),
+
+fθ(x) = fθ0(x) + Φ(x)⊤(θ − θ0),
+
+for θ in a neighborhood of θ0. This makes the score affine in θ and induces the task kernels
+
+KDt := E(x,y)∼Dt
+
+(cid:2)Φ(x)Φ(x)⊤(cid:3),
+
+(cid:98)KSt :=
+
+1
+nt
+
+nt(cid:88)
+
+i=1
+
+Φ(cid:0)x(t)
+
+i
+
+(cid:1)Φ(cid:0)x(t)
+
+i
+
+(cid:1)⊤
+
+.
+
+Within this local model, convexity and γ-smoothness in the score allows us to relate Gaussian posteriors
+Qt = N (µt, Σt) to their means via trace terms in K, enabling a single-model bound for the merged
+parameter:
+
+θmerge := E [Qmerge] = E
+
+
+
+
+
+T
+(cid:88)
+
+j=1
+
+
+
+βj Qj
+
+ =
+
+T
+(cid:88)
+
+j=1
+
+βj E [Qj] =
+
+T
+(cid:88)
+
+j=1
+
+βj µj,
+
+∆j := µj − θmerge.
+
+Note that posterior-level bounds themselves do not rely on NTK; the NTK is used only to pass from
+posterior-level to a single model. We next establish bounds on the loss and flatness of the posterior, which
+will be leveraged in the subsequent derivation.
+
+Lemma 2. Assume the NTK linearization around θ0. Let ℓ be convex and γ-smooth in the score. For
+Q = N (µ, Σ) and distribution D,
+
+LD(µ) ≤ LD(Q) ≤ LD(µ) +
+
+tr(cid:0)Σ KD
+
+(cid:1).
+
+γ
+2
+
+The empirical statement follows verbatim with D → S and KD → (cid:98)KS .
+
+Lemma 3. Let ℓ be convex and γ-smooth in the score, and let Q = N (µ, Σ). Then, for D,
+
+GD(Q) ≤
+
+(cid:16)(cid:112)GD(µ) + γ
+
+(cid:113)
+
+tr(cid:0)Σ K2
+
+D
+
+(cid:1)(cid:17)2
+
+.
+
+The empirical statement follows verbatim with D → S and KD → (cid:98)KS .
+
+Now, under NTK, we bound the heterogeneity term with loss and flatness at θmerge.
+
+Lemma 4. Under NTK, with loss ℓ being convex and γ-smooth in score, let Kα = (cid:80)T
+(cid:80)T
+
+j=1 βjKDj , and ∆j = µj − θmerge. Then, for θmerge,
+
+t=1 αtKDt, Kβ =
+
+HQ(α, β) ≤ (Lα(θmerge) − Lβ(θmerge))
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:117)
+(cid:116)2
+
+
+
+
+
+T
+(cid:88)
+
+t=1
+
++
+
+αtGDt(θmerge) +
+
+
+
+βjGDj (θmerge)
+
+
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)
+
+T
+(cid:88)
+
+j=1
+
+βj∥∆j∥2
+2
+
+T
+(cid:88)
+
+j=1
+
++
+
+γ
+2
+
+T
+(cid:88)
+
+j=1
+
+βj
+
+(cid:2)∆⊤
+
+j (Kα + Kβ)∆j + tr (ΣjKα)(cid:3) .
+
+With these, we are ready to state our main PAC-Bayes bound for the merged model.
+
+6
+
+Theorem 2. Assume the NTK regime. Fix nonnegative {δt}T
+t=1 δt ≤ 1, task weights
+α, β ∈ ∆T −1, constants ηt ∈ (0, 2) for each task t, a data-free prior P ∈ M(H), and a γ-smooth loss
+ℓ : (cid:98)Y × Y → [0, 1] convex in its score argument. Over {St}T
+t=1 with |St| = nt, with probability
+at least 1 − δ, the following holds for all Gaussian posteriors Qt = N (µt, Σt) and for the merged parameter
+θmerge := (cid:80)T
+
+j=1 βj µj with ∆j := µj − θmerge:
+
+t=1 from {Dt}T
+
+t=1 with δ = (cid:80)T
+
+Lα (θmerge) ≤
+
+(cid:34)
+
+T
+(cid:88)
+
+t=1
+
+βt
+
+1
+1 − ηt
+2
+
+
+ ˆLSt (µt) +
+
+γ
+2
+
+tr (ΣtKDt) +
+
+DKL (Qt∥P ) + log
+
+ηtnt
+
+(cid:16) 1
+δt
+
+(cid:17)
+
+
+
+
+
+(cid:18)
+
+(cid:112)GD(µt) + γ
+
+(cid:113)
+
+∥Σt∥
+
+tr (cid:0)ΣtK2
+Dt
+
+(cid:1)
+
+(cid:19)2 (cid:35)
+
++ [Lα(θmerge) − Lβ(θmerge)]
+
++
+
++
+
+ηt
+2 − ηt
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:117)
+(cid:116)2
+
+
+
+
+
+T
+(cid:88)
+
+t=1
+
+γ
+2
+
+T
+(cid:88)
+
+j=1
+
++
+
+αtGDt(θmerge) +
+
+
+
+βjGDj (θmerge)
+
+
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)
+
+T
+(cid:88)
+
+j=1
+
+βj∥∆j∥2
+2
+
+T
+(cid:88)
+
+j=1
+
+βj
+
+(cid:2)∆⊤
+
+j (Kα + Kβ)∆j + tr (ΣjKα)(cid:3)
+
+where Kα = (cid:80)T
+
+t=1 αtKDt and Kβ = (cid:80)T
+
+t=1 βtKDt.
+
+Theorem 2 implies that the risk Lα(θmerge) is controlled by: (i) Per-task PAC-Bayes contributions
+computed at each fine-tuned model Qt = N (µt, Σt) that combine the fine-tuned model’s empirical loss
+with its flatness on its own domain via GDt
+. This component directly explains why using flatter fine-tuned
+models improves merging, as in Lee et al. [2025], since flatter fine-tuned models tighten these terms. (ii) A
+cross-task heterogeneity contribution that, under the NTK assumption, is further bounded by the mixture
+gap Lα(θmerge) − Lβ(θmerge), flatness of the merged model (cid:80)
+,
+j βj∥∆j∥2
+2
+and the quadratics (cid:80)
+
+t αtGDt(θmerge), the dispersion (cid:80)
+
+j βj ∆⊤
+
+j (Kα + Kβ)∆j.
+
+Operationally, the bound suggests desirable design choices for any label-free merging routine: (i)
+favoring flatter basins (e.g., via sharpness-aware perturbations) to directly shrink the flatness terms
+GDt(θmerge), (ii) selecting coefficients β that pull θmerge to reduce dispersion and the kernel-weighted
+penalties, and (iii) aligning β with the evaluation mixture α to minimize the gap Lα(θmerge) − Lβ(θmerge).
+Furthermore, we know that NTK approximation is best within a limited distance, so we encourage the
+merged model to be around the pretrained and not get too far. Taken together, these choices would
+tighten the bound. The bound also clarifies failure modes: fine-tuned models that are simultaneously
+sharp and far from consensus increase the heterogeneity terms, and any principled algorithm should
+accordingly assign them smaller coefficients in β.
+
+Remark 1. We distinguish our approach from prior work that modifies the fine-tuning stage by train-
+ing task-specific fine-tuned models with sharpness-aware minimization to encourage flatter minima for
+individual fine-tuned models, and subsequently merges these fine-tuned models to obtain a model that is
+robust to parameter perturbations to better preserve individual task performance. In contrast, our method
+operates on already fine-tuned models and does not interfere with or alter the fine-tuning procedure of the
+individual tasks. Our theoretical analysis reveals that fine-tuning models with SAM and applying SAM
+during the merging stage address two distinct terms in the generalization bound. Specifically, fine-tuning
+models using SAM as in Lee et al. [2025] shrinks the term (cid:112)GD(µt), while SAMerging pushes the merged
+(cid:114)
+model itself toward flatter basins by shrinking the
+
+t=1 αtGDt(θmerge) + (cid:80)T
+
+j=1 βjGDj (θmerge)
+
+(cid:16)(cid:80)T
+2
+
+term.
+
+(cid:17)
+
+3.2 Model Merging as Multi-Teacher Knowledge Distillation
+
+We now turn to rigorously justify estimating the merging coefficients λ via multi-teacher knowledge
+distillation: minimizing the KL divergence between the student’s (merged model) and the teachers’
+(fine-tuned models) distributions tightens a provable upper bound on the merged model’s classification
+error. We first fix notation and losses, then recall standard links between distributional distances and 0–1
+risk that underlie the single-task bound and its multi-task extension.
+
+7
+
+Definition 1. Let Y be a finite label set and let (x, y) ∼ D. For each x, denote by y(· | x) ∈ R|Y| the
+true conditional label distribution, by p(· | x) a (possibly misspecified) teacher/fine-tuned model, and by
+q(· | x) a student/merged model. Let hq(x) ∈ arg maxy∈Y q(y | x) be the deterministic classifier induced
+by q, and define the 0-1 risk under a conditional distribution s(· | x) by
+(cid:2) 1 − s(hq(x) | x) (cid:3),
+
+(hq) := E(x,y)∼D
+
+L0−1
+s
+
+and the Bayes optimal risk by
+
+L0−1,⋆
+s
+
+:= E(x,y)∼D
+
+(cid:2) 1 − max
+
+y
+
+s(y | x) (cid:3).
+
+Now we propose the excess risk bound for a single task, which serves as the foundation for our main
+
+multi-task result.
+
+Lemma 5 (Single-Task Excess Risk Bound). For any task t, let yt(·|x) be the true data distribution,
+pt(·|x) be a teacher, and qλ(·|x) be the student. Let hλ be the classifier induced by the student. The
+student’s excess 0-1 risk is bounded by:
+
+L0−1
+yt
+
+(hλ) ≤
+
+(cid:113)
+
+2 Ex∼Dt DKL
+
+(cid:0)pt(·|x) ∥ qλ(·|x)(cid:1) +
+
+(cid:113)
+
+2 Ex∼Dt DKL
+
+(cid:0)yt(·|x) ∥ pt(·|x)(cid:1).
+
+Extending this result, we arrive at the main theorem in this section, which bounds the average excess
+
+risk of the merged model across all tasks.
+
+Theorem 3 (Multi-Task Excess Risk Bound). Let there be T tasks. For each task t, let yt(·|x) be the
+true distribution, pt(·|x) be the teacher (fine-tuned model) for task t, and qλ(·|x) be the student (merged
+model). Let hλ be the classifier induced by the student. For evaluation weights α ∈ ∆T −1, the student’s
+average excess risk is bounded by:
+
+T
+(cid:88)
+
+t=1
+
+αtL0−1
+yt
+
+(hλ) ≤
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)2
+
+T
+(cid:88)
+
+t=1
+
+αtEx∼DtDKL
+
+(cid:0)pt(·|x) ∥ qλ(·|x)(cid:1)
+
+(1)
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)2
+
++
+
+T
+(cid:88)
+
+t=1
+
+αtEx∼DtDKL
+
+(cid:0)yt(·|x) ∥ pt(·|x)(cid:1).
+
+Theorem 3 decomposes the average excess risk into (i) an optimizable student–teacher fit term, given
+by the KL divergence DKL(pt ∥ qλ), and (ii) a fixed teacher error term that depends only on the fine-tuned
+models. Since the latter is independent of λ, tightening the bound reduces to minimizing the fit term.
+Our objective achieves this by minimizing the student–teacher KL divergence on calibration data, thereby
+directly tightening the proven risk bound for the merged model. In contrast, methods such as AdaMerging
+[Yang et al., 2023] use entropy minimization without an explicit excess-risk guarantee.
+
+SAMerging Objective and Optimization
+
+3.3
+By Theorem 3, the average excess risk is controlled by the student–teacher fit term DKL(pt∥qλ). In
+other words, the discrepancy between the true task distribution pt and the model distribution qλ directly
+governs the tightness of the bound. Motivated by this and by the flatness terms in our PAC-Bayes bound
+in Theorem 2, we minimize the multi-teacher KD loss and search for flat solutions via SAM [Foret et al.,
+2021]:
+
+LKD(λ) =
+
+T
+(cid:88)
+
+t=1
+
+αt Ex∈Bt[KL(pt(· | x) ∥ qλ(· | x))]
+
+where Bt is a batch of unlabeled data for task t. The SAM-enhanced problem that we minimize is
+
+min
+λ
+
+max
+∥ε∥2≤ρ
+
+LKD(λ + ε),
+
+where ρ > 0 controls the SAM neighborhood. In practice, we usually set αt = 1
+. We can also initialize
+T
+the coefficient from 0 or add a norm penalty to encourage the remaining in the NTK-faithful neighborhood
+of θ0, which helps reduce the dispersion and kernel-weighted penalties highlighted by Theorem 2. The
+pseudo-code of SAMerging is provided in Appendix C.
+
+8
+
+Method
+
+Bases
+
+Pretrained
+Fine-tuned
+MTL
+
+Data-free
+
+Simple Averaging
+Task Arithmetic
+TIES-Merging
+Isotropic Merging
+PCB Merging
+
+Data-dependent
+Fisher (k=1600)
+RegMean (k=1600)
+RegMean++ (k=1600)
+AdaMerging LW (k=1600)
+AdaMerging LW (k=16000)
+
+Ours
+SAMerging (k=1600)
+
+CLIP ViT-B/32
+
+CLIP ViT-L/14
+
+TA-8
+
+TALL-14
+
+TALL-20
+
+TA-8
+
+TALL-14
+
+TALL-20
+
+Acc. Norm. Acc. Norm. Acc. Norm. Acc. Norm. Acc. Norm. Acc. Norm.
+
+48.2
+90.3
+88.5
+
+66.3
+67.5
+71.9
+78.8
+75.4
+
+70.5
+80.5
+84.2
+73.7
+82.6
+
+53.4
+100.0
+98.0
+
+73.4
+74.8
+79.6
+87.3
+83.5
+
+78.1
+89.1
+93.2
+81.6
+91.5
+
+56.9
+88.5
+87.7
+
+65.4
+66.5
+67.6
+78.8
+70.3
+
+67.1
+76.1
+79.8
+71.1
+77.7
+
+64.3
+100.0
+99.1
+
+73.4
+75.1
+76.4
+89.0
+79.4
+
+75.8
+86.0
+90.2
+80.3
+87.8
+
+55.6
+89.8
+88.9
+
+61.1
+61.1
+62.7
+73.5
+64.1
+
+62.2
+70.0
+74.0
+61.5
+69.4
+
+61.9
+100.0
+99.0
+
+68.0
+68.0
+69.8
+81.8
+71.4
+
+69.3
+78.0
+82.4
+68.5
+77.3
+
+64.6
+94.3
+92.3
+
+79.9
+82.1
+83.8
+90.3
+84.2
+
+73.3
+89.0
+88.3
+85.1
+91.0
+
+68.5
+100.0
+98.0
+
+86.5
+87.1
+88.9
+95.8
+89.3
+
+77.7
+94.4
+93.6
+90.2
+96.5
+
+69.1
+93.4
+91.6
+
+77.5
+77.9
+77.8
+89.8
+80.4
+
+75.4
+86.3
+87.9
+81.9
+87.2
+
+74.0
+100.0
+98.1
+
+83.0
+83.4
+83.3
+96.1
+86.1
+
+80.7
+92.4
+94.1
+87.7
+93.4
+
+65.6
+93.5
+91.8
+
+71.1
+71.1
+72.3
+84.8
+72.6
+
+70.4
+78.8
+82.5
+71.5
+79.0
+
+70.2
+100.0
+98.2
+
+76.0
+76.0
+77.3
+90.7
+77.6
+
+75.3
+87.8
+88.2
+76.5
+84.5
+
+87.1
+
+96.5
+
+83.7
+
+94.6
+
+81.1
+
+90.3
+
+92.6
+
+98.2
+
+90.7
+
+97.1
+
+89.9
+
+96.1
+
+Table 1: Average results across CLIP ViT backbones on TA-8, TALL-14, and TALL-20. Best result
+is bold and second best result is underlined. Accuracy (Acc., %) and normalized accuracy vs. Avg.
+fine-tuning (Norm., %; Avg. FT is 100%). Data-dependent methods use a maximum of k unlabeled
+samples per task for adaptation.
+
+Remark 2. While both SAMerging and AdaMerging leverage unlabeled data to learn merging coefficients,
+they fundamentally differ in their objectives and theoretical grounding. AdaMerging minimizes predictive
+entropy, a heuristic that encourages the model to be confident (producing “peaky” distributions) but does
+not necessarily ensure correctness or alignment with the fine-tuned model models. Consequently, it lacks
+explicit guarantees regarding generalization error. In contrast, SAMerging casts merging as multi-teacher
+distillation, as in Theorem 3, this objective directly tightens an upper bound on the merged model’s excess
+risk. Furthermore, while AdaMerging relies on standard optimization, rendering it brittle to initialization,
+SAMerging, based onthe bound in Theorem 2, integrates SAM to explicitly navigate toward flat loss basins.
+
+4 Experiments
+We first introduce our experimental setup in Section 4.1 and then report the results in Section 4.2. Full
+tasks and baseline descriptions (D.1), experimental setups and ablations (D.2) and tables (D.3) are
+provided in the appendix.
+
+4.1 Experimental Setup
+
+Tasks and data. We evaluate generalization across increasing interference regimes on four suites following
+Ilharco et al. [2023], Wang et al. [2024]: (i) TA-8 (8 image classification tasks), (ii) TALL-14 (TA-8 +
+six more tasks), (iii) TALL-20 (TALL-14 + six more tasks), and (iv) GLUE (7 NLP tasks). Vision
+backbones are CLIP ViT-B/32 and ViT-L/14. For NLP GLUE tasks, we use GPT-2, fine-tuned per task,
+to obtain task vectors. The setup is similar to Wang et al. [2024].
+Baselines and metric. We compare against standard and state-of-the-art merging baselines. Data-free:
+Simple Averaging (SA) [Wortsman et al., 2022], Task Arithmetic (TA) [Ilharco et al., 2023], TIES-Merging
+(TIES) [Yadav et al., 2023], and Isotropic Merging [Marczak et al., 2025]. Data-dependent: Fisher
+Merging [Matena and Raffel, 2022], RegMean [Jin et al., 2025] / RegMean++ [Nguyen et al., 2025],
+and AdaMerging [Yang et al., 2023] (we use the layer-wise variant, which consistently outperforms the
+task-wise version). We report average multi-task accuracy (Acc. %) and normalized accuracy relative to
+the mean accuracy of the individual fine-tuned model (Norm. %).
+
+9
+
+Method
+
+CLIP ViT-B/32
+
+CLIP ViT-L/14
+
+TA-8
+
+TALL-14
+
+TALL-20
+
+TA-8
+
+TALL-14
+
+TALL-20
+
+Acc.
+
+Norm.
+
+Acc.
+
+Norm.
+
+Acc.
+
+Norm.
+
+Acc.
+
+Norm.
+
+Acc.
+
+Norm.
+
+Acc.
+
+Norm.
+
+Fine-tuned
+MTL
+ProDistill (k=16)
+SAMerging (k=16)
+
+90.3
+88.5
+81.1
+83.8
+
+100.0
+98.0
+89.8
+92.8
+
+88.5
+87.7
+80.5
+81.2
+
+100.0
+99.1
+91.0
+91.8
+
+89.8
+88.9
+77.8
+77.9
+
+100.0
+99.0
+86.6
+85.7
+
+94.3
+92.3
+87.2
+91.2
+
+100.0
+97.9
+92.5
+96.7
+
+93.4
+91.6
+89.0
+89.1
+
+100.0
+98.1
+95.3
+95.4
+
+93.5
+91.8
+86.8
+85.8
+
+100.0
+98.2
+92.8
+91.8
+
+Table 2: Comparison of SAMerging and ProDistill on CLIP ViT backbones on TA-8, TALL-14, and
+TALL-20. Best result is bold.
+
+4.2 Results
+
+Overall performance. Table 1 summarizes multi-task results across CLIP backbones. SAMerging
+achieves the best average accuracy and normalized accuracy across all settings, outperforming both data-
+free and data-dependent baselines. Notably, while AdaMerging (layer-wise) requires k=16K unlabeled
+samples per task for adaptation, SAMerging uses only k=1.6K and yields higher accuracy, indicating
+better data efficiency. Relative to strong pruning- or arithmetic-based methods, SAMerging consistently
+outperforms them and closes the gap to the single-task fine-tuned model, while preserving the advantages
+of post-hoc merging (i.e., no joint training). Additionally, we compare our approach against ProDistill,
+another few-shot distillation method. As shown in Table 2, SAMerging consistently achieves higher
+accuracy than ProDistill across all benchmarks and backbones.
+Scaling with the number of tasks. Table 1 shows that the absolute gains of SAMerging widen as
+the number of merged tasks increases. This trend supports our design objective: by explicitly stabilizing
+adaptation with sharpness-aware updates and a DKL guidance term, SAMerging mitigates cross-task
+interference that typically accumulates with more fine-tuned models being merged.
+
+Figure 2: The loss landscape around the merged model of SAMerging and AdaMerging on TA-8 with
+perturbing along EuroSAT and SUN397.
+
+Language tasks. As shown in Table 3, SAMerging achieves the highest average performance on GLUE
+with GPT-2 fine-tuned models, surpassing TIES-Merging and Task Arithmetic; the same objective transfers
+beyond vision backbones to autoregressive language models and remains effective under heterogeneous
+task difficulty. Interestingly, data-dependent baselines (e.g., AdaMerging) underperform data-free ones
+(e.g., Task Arithmetic, TIES), underscoring the brittleness of entropy minimization.
+Loss Landscape Geometry. To validate our theoretical motivation, we analyze the geometry of the
+solution space found by our method. Figure 2 visualizes the 2D loss landscape of the merged model when
+perturbed along the task vectors of EuroSAT and SUN397 tasks. SAMerging converges to a significantly
+broader low-loss basin, indicated by the expansive blue region, compared to the narrower minimum found
+by AdaMerging, which exhibits sharper transitions to high-loss red areas. This observation is further
+
+10
+
+Figure 3: The loss behavior around the merged model of SAMerging and AdaMerging on TA-8 by
+perturbing along task vectors of EuroSAT and SUN397.
+
+Figure 4: Data-dependent methods gain in performance with increasing number of calibration data on
+TA-8 using ViT-B/32.
+
+Method
+
+Fine-tuned (STL)
+Simple Average
+Task Arithmetic (λ=0.5)
+TIES-Merging (λ=0.6)
+Fisher Merging
+RegMean
+AdaMerging
+SAMerging
+
+Avg.
+
+82.0
+56.1
+70.0
+70.0
+58.7
+68.8
+68.8
+74.9
+
+Table 3: Merging methods performance on GLUE using GPT-2. Best result is bold and second best is
+underlined.
+
+quantified in Figure 3, which presents 1D loss along these specific task vectors. As shown, the loss curve
+for SAMerging is visibly flatter around the merged, meaning the cross-entropy loss increases more slowly
+as parameters deviate towards the other from the optimal point compared to AdaMerging. For additional
+visualizations of loss landscapes across other task pairs and benchmarks, please refer to Appendix E.
+Ablation Study. As shown in Table 5, we do an ablation study to find out the additive gain of
+performance by changing the optimizer and objective, and the KL objective and SAM each provide
+measurable gains, and their combination (KL+SAM) yields the strongest improvements. We also conduct
+ablation experiments to determine the effect of the number of examples on the data-dependent method,
+as shown in Figure 4. The results show that SAMerging can achieve near SOTA performance with only a
+handful of data (e.g., 16 here).
+
+11
+
+161601600# examples5060708090Average accuracy (%)FisherRegMeanAdaMergingSAMergingMethod
+
+MNLI
+
+IMDb Avg.
+
+Pre-trained
+Finetuned
+Task Arithmetic (λ=0.5)
+Task Arithmetic (λ=1.0)
+TIES-Merging
+AdaMerging (k=1600)
+SAMerging (k=1600)
+
+33.0
+91.7
+72.5
+91.2
+88.7
+72.5
+90.5
+
+50.0
+97.1
+54.4
+65.9
+95.9
+54.4
+96.4
+
+41.5
+94.4
+63.5
+78.6
+92.3
+63.5
+93.5
+
+Table 4: Merging methods performance on MNLI and IMDb using DeBERTa-V2-XXL (1.5B parameters).
+Best result is bold and second best is underlined.
+
+Variant
+
+Avg. Acc. (%)
+
+SAMerging
+– KL
+– SAM
+– KL & – SAM
+
+85.2
+84.7 -0.5% ↓
+84.2 -1.0% ↓
+83.5-1.7% ↓
+
+Table 5: Ablation of using DKL as objective and SAM as optimizer on TA-8 using ViT-B/32. Average
+Acc.% and drop vs. SAMerging.
+
+5 Conclusion
+
+We propose SAMerging, a data-efficient, label-free merger that learns layer-wise coefficients by explicitly
+seeking flat minima. We derive a PAC-Bayes bound for multi-task merging with a heterogeneity term
+that clarifies when merging succeeds, and cast coefficient learning as multi-teacher distillation, where
+minimizing student–teacher KL tightens the excess-risk bound of the merged model. Coupling this KL
+objective with SAM yields a procedure that generalizes well. Empirically, SAMerging achieves state-of-
+the-art results on TA-8 and TALL-14/20 with CLIP ViT and GLUE, consistently outperforming data-free
+and data-dependent baselines, without additional inference parameters or latency.
+
+Limitations and future work Even with more tasks, regimes with strong task interference or heavy
+domain shift (e.g., conflicting label spaces or multi-label settings) remain underexplored. The analysis
+assumes a local NTK-style linearization, so behavior far from this regime is uncertain. Our evaluation
+focuses solely on classification; extending it to generative tasks is left for future work. Finally, SAM adds
+calibration-time cost; lighter flatness proxies may reduce this overhead.
+
+Acknowledgement
+
+This work was partially supported by NSF CAREER Award #2239374.
+
+References
+
+Gabriel Ilharco, Marco Tulio Ribeiro, Mitchell Wortsman, Suchin Gururangan, Ludwig Schmidt, Hannaneh
+Hajishirzi, and Ali Farhadi. Editing models with task arithmetic. (arXiv:2212.04089), March 2023. doi:
+10.48550/arXiv.2212.04089. URL http://arxiv.org/abs/2212.04089. arXiv:2212.04089.
+
+Michael Matena and Colin Raffel. Merging models with fisher-weighted averaging. In Proceedings of the
+36th International Conference on Neural Information Processing Systems, NIPS ’22, Red Hook, NY,
+USA, 2022. Curran Associates Inc. ISBN 9781713871088. event-place: New Orleans, LA, USA.
+
+Mitchell Wortsman, Gabriel Ilharco, Samir Yitzhak Gadre, Rebecca Roelofs, Raphael Gontijo-Lopes,
+Ari S. Morcos, Hongseok Namkoong, Ali Farhadi, Yair Carmon, Simon Kornblith, and Ludwig
+Schmidt. Model soups: averaging weights of multiple fine-tuned models improves accuracy without
+
+12
+
+increasing inference time. (arXiv:2203.05482), July 2022. doi: 10.48550/arXiv.2203.05482. URL
+http://arxiv.org/abs/2203.05482. arXiv:2203.05482.
+
+Leo Breiman. Bagging predictors. Machine Learning, 24(2):123–140, August 1996. ISSN 1573-0565. doi:
+
+10.1007/BF00058655. URL https://doi.org/10.1007/BF00058655.
+
+Tianqi Chen and Carlos Guestrin. Xgboost: A scalable tree boosting system. (arXiv:1603.02754), June
+2016. doi: 10.48550/arXiv.1603.02754. URL http://arxiv.org/abs/1603.02754. arXiv:1603.02754.
+
+M. A. Ganaie, Minghui Hu, A. K. Malik, M. Tanveer, and P. N. Suganthan. Ensemble deep learning: A
+review. (arXiv:2104.02395), August 2022. doi: 10.48550/arXiv.2104.02395. URL http://arxiv.org/abs/
+2104.02395. arXiv:2104.02395.
+
+Enneng Yang, Li Shen, Guibing Guo, Xingwei Wang, Xiaochun Cao, Jie Zhang, and Dacheng Tao.
+Model merging in llms, mllms, and beyond: Methods, theories, applications and opportunities.
+(arXiv:2408.07666), September 2024a. doi: 10.48550/arXiv.2408.07666. URL http://arxiv.org/abs/
+2408.07666. arXiv:2408.07666.
+
+Zhixu Silvia Tao, Ian Mason, Sanjeev Kulkarni, and Xavier Boix. Task arithmetic through the lens of
+one-shot federated learning. (arXiv:2411.18607), July 2025. doi: 10.48550/arXiv.2411.18607. URL
+http://arxiv.org/abs/2411.18607. arXiv:2411.18607.
+
+Xiang Liu, Liangxi Liu, Feiyang Ye, Yunheng Shen, Xia Li, Linshan Jiang, and Jialin Li. Fedlpa: One-shot
+federated learning with layer-wise posterior aggregation. (arXiv:2310.00339), October 2024a. doi:
+10.48550/arXiv.2310.00339. URL http://arxiv.org/abs/2310.00339. arXiv:2310.00339.
+
+Shutong Chen, Tianyi Zhou, Guodong Long, Jing Jiang, and Chengqi Zhang. Fedmerge: Federated
+personalization via model merging. (arXiv:2504.06768), April 2025. doi: 10.48550/arXiv.2504.06768.
+URL http://arxiv.org/abs/2504.06768. arXiv:2504.06768.
+
+Riccardo Salami, Pietro Buzzega, Matteo Mosconi, Jacopo Bonato, Luigi Sabetta, and Simone Calderara.
+Closed-form merging of parameter-efficient modules for federated continual learning. (arXiv:2410.17961),
+March 2025. doi: 10.48550/arXiv.2410.17961. URL http://arxiv.org/abs/2410.17961. arXiv:2410.17961.
+
+Vasileios Tsouvalas, Tanir Ozcelebi, and Nirvana Meratnia. Many-task federated fine-tuning via unified
+
+task vectors. arXiv preprint arXiv:2502.06376, 2025.
+
+Guillermo Ortiz-Jimenez, Alessandro Favero, and Pascal Frossard. Task arithmetic in the tangent space:
+Improved editing of pre-trained models. Advances in Neural Information Processing Systems, 36:
+66727–66754, December 2023. URL https://proceedings.neurips.cc/paper_files/paper/2023/hash/
+d28077e5ff52034cd35b4aa15320caea-Abstract-Conference.html.
+
+Prateek Yadav, Derek Tam, Leshem Choshen, Colin Raffel, and Mohit Bansal. Ties-merging: Resolving
+interference when merging models. (arXiv:2306.01708), October 2023. doi: 10.48550/arXiv.2306.01708.
+URL http://arxiv.org/abs/2306.01708. arXiv:2306.01708.
+
+Enneng Yang, Zhenyi Wang, Li Shen, Shiwei Liu, Guibing Guo, Xingwei Wang, and Dacheng Tao.
+Adamerging: Adaptive model merging for multi-task learning. October 2023. URL https://openreview.
+net/forum?id=nZP6NgD3QY.
+
+Hongkang Li, Yihua Zhang, Shuai Zhang, Meng Wang, Sijia Liu, and Pin-Yu Chen. When is task
+vector provably effective for model editing? a generalization analysis of nonlinear transformers.
+(arXiv:2504.10957), May 2025. doi: 10.48550/arXiv.2504.10957. URL http://arxiv.org/abs/2504.10957.
+arXiv:2504.10957.
+
+Zhanpeng Zhou, Zijun Chen, Yilan Chen, Bo Zhang, and Junchi Yan. On the emergence of cross-task
+linearity in the pretraining-finetuning paradigm. (arXiv:2402.03660), May 2024. doi: 10.48550/arXiv.
+2402.03660. URL http://arxiv.org/abs/2402.03660. arXiv:2402.03660.
+
+Yibin Wang and Haifeng Wang. Distributionally robust unsupervised domain adaptation. Journal of
+Computational and Applied Mathematics, 436:115369, January 2024. ISSN 0377-0427. doi: 10.1016/j.
+cam.2023.115369. URL https://www.sciencedirect.com/science/article/pii/S0377042723003138.
+
+13
+
+Sepp Hochreiter and Jürgen Schmidhuber. Flat minima. Neural computation, 9(1):1–42, 1997.
+
+Behnam Neyshabur, Srinadh Bhojanapalli, David McAllester, and Nati Srebro. Exploring generalization
+
+in deep learning. Advances in neural information processing systems, 30, 2017.
+
+Henning Petzka, Michael Kamp, Linara Adilova, Cristian Sminchisescu, and Mario Boley. Relative flatness
+
+and generalization. Advances in neural information processing systems, 34:18420–18432, 2021.
+
+Maksym Andriushchenko, Francesco Croce, Maximilian Müller, Matthias Hein, and Nicolas Flammarion. A
+modern look at the relationship between sharpness and generalization. arXiv preprint arXiv:2302.07011,
+2023.
+
+Yun Yue, Jiadi Jiang, Zhiling Ye, Ning Gao, Yongchao Liu, and Ke Zhang. Sharpness-aware minimization
+revisited: Weighted sharpness as a regularization term. In Proceedings of the 29th ACM SIGKDD
+Conference on Knowledge Discovery and Data Mining, KDD ’23, page 3185–3194, New York, NY, USA,
+2023. Association for Computing Machinery. ISBN 9798400701030. doi: 10.1145/3580305.3599501.
+URL https://doi.org/10.1145/3580305.3599501. event-place: Long Beach, CA, USA.
+
+Maxime Haddouche, Paul Viallard, Umut Simsekli, and Benjamin Guedj. A pac-bayesian link between
+generalisation and flat minima. (arXiv:2402.08508), February 2025. doi: 10.48550/arXiv.2402.08508.
+URL http://arxiv.org/abs/2402.08508. arXiv:2402.08508.
+
+Pierre Foret, Ariel Kleiner, Hossein Mobahi, and Behnam Neyshabur. Sharpness-aware minimization for
+efficiently improving generalization. (arXiv:2010.01412), April 2021. doi: 10.48550/arXiv.2010.01412.
+URL http://arxiv.org/abs/2010.01412. arXiv:2010.01412.
+
+Rich Caruana. Multitask learning. Machine Learning, 28(1):41–75, July 1997. ISSN 1573-0565. doi:
+
+10.1023/A:1007379606734. URL https://doi.org/10.1023/A:1007379606734.
+
+Jonathan Baxter. A model of inductive bias learning. J. Artif. Int. Res., 12(1):149–198, March 2000.
+
+ISSN 1076-9757.
+
+Andreas Argyriou, Theodoros Evgeniou, and Massimiliano Pontil. Multi-task feature learning. Advances
+
+in neural information processing systems, 19, 2006.
+
+Andreas Maurer, Massimiliano Pontil, and Bernardino Romera-Paredes. The benefit of multitask
+
+representation learning. Journal of Machine Learning Research, 17(81):1–32, 2016.
+
+Yu Zhang and Qiang Yang. A survey on multi-task learning. IEEE transactions on knowledge and data
+
+engineering, 34(12):5586–5609, 2021.
+
+Hossein Zakerinia, Dorsa Ghobadi, and Christoph H. Lampert. From low intrinsic dimensionality to
+non-vacuous generalization bounds in deep multi-task learning. (arXiv:2501.19067), May 2025. doi:
+10.48550/arXiv.2501.19067. URL http://arxiv.org/abs/2501.19067. arXiv:2501.19067.
+
+Hossein Zakerinia and Christoph H. Lampert. Fast rate bounds for multi-task and meta-learning
+with different sample sizes. (arXiv:2505.15496), May 2025. doi: 10.48550/arXiv.2505.15496. URL
+http://arxiv.org/abs/2505.15496. arXiv:2505.15496.
+
+Xiaowu Dai and Yuhua Zhu. On large batch training and sharp minima: a fokker–planck perspective.
+
+Journal of Statistical Theory and Practice, 14(3):53, 2020.
+
+Laurent Dinh, Razvan Pascanu, Samy Bengio, and Yoshua Bengio. Sharp minima can generalize for deep
+
+nets. In International Conference on Machine Learning, page 1019–1028. PMLR, 2017.
+
+Yeoreum Lee, Jinwook Jung, and Sungyong Baik. Mitigating parameter interference in model merging
+
+via sharpness-aware fine-tuning. arXiv preprint arXiv:2504.14662, 2025.
+
+Chenxiang Zhang, Alexander Theus, Damien Teney, Antonio Orvieto, Jun Pang, and Sjouke Mauw. How
+does the optimizer implicitly bias the model merging loss landscape? (arXiv:2510.04686), October
+2025. doi: 10.48550/arXiv.2510.04686. URL http://arxiv.org/abs/2510.04686. arXiv:2510.04686.
+
+14
+
+Chengyue Wu, Teng Wang, Yixiao Ge, Zeyu Lu, Ruisong Zhou, Ying Shan, and Ping Luo. p-tuning:
+Transferring multimodal foundation models with optimal multi-task interpolation. (arXiv:2304.14381),
+May 2023. doi: 10.48550/arXiv.2304.14381. URL http://arxiv.org/abs/2304.14381. arXiv:2304.14381.
+
+Ishan Misra, Abhinav Shrivastava, Abhinav Gupta, and Martial Hebert. Cross-stitch networks for
+multi-task learning. (arXiv:1604.03539), April 2016. doi: 10.48550/arXiv.1604.03539. URL http:
+//arxiv.org/abs/1604.03539. arXiv:1604.03539.
+
+Ximeng Sun, Rameswar Panda, Rogerio Feris, and Kate Saenko. Adashare: Learning what to share for
+efficient deep multi-task learning. (arXiv:1911.12423), November 2020. doi: 10.48550/arXiv.1911.12423.
+URL http://arxiv.org/abs/1911.12423. arXiv:1911.12423.
+
+Hussein Hazimeh, Zhe Zhao, Aakanksha Chowdhery, Maheswaran Sathiamoorthy, Yihua Chen, Rahul
+Mazumder, Lichan Hong, and Ed Chi. Dselect-k: Differentiable selection in the mixture of experts with
+applications to multi-task learning. In Advances in Neural Information Processing Systems, volume 34,
+page 29335–29347. Curran Associates, Inc., 2021. URL https://proceedings.neurips.cc/paper/2021/
+hash/f5ac21cd0ef1b88e9848571aeb53551a-Abstract.html.
+
+Hongyan Tang, Junning Liu, Ming Zhao, and Xudong Gong. Progressive layered extraction (ple):
+A novel multi-task learning (mtl) model for personalized recommendations.
+In Fourteenth ACM
+Conference on Recommender Systems, page 269–278, Virtual Event Brazil, September 2020. ACM. ISBN
+9781450375832. doi: 10.1145/3383313.3412236. URL https://dl.acm.org/doi/10.1145/3383313.3412236.
+
+Tianhe Yu, Saurabh Kumar, Abhishek Gupta, Sergey Levine, Karol Hausman, and Chelsea Finn. Gradient
+surgery for multi-task learning. (arXiv:2001.06782), December 2020. doi: 10.48550/arXiv.2001.06782.
+URL http://arxiv.org/abs/2001.06782. arXiv:2001.06782.
+
+Bo Liu, Xingchao Liu, Xiaojie Jin, Peter Stone, and Qiang Liu. Conflict-averse gradient descent for
+multi-task learning. (arXiv:2110.14048), February 2024b. doi: 10.48550/arXiv.2110.14048. URL
+http://arxiv.org/abs/2110.14048. arXiv:2110.14048.
+
+Pierre Quinton and Valérian Rey.
+
+Jacobian descent
+(arXiv:2406.16232), February 2025. doi: 10.48550/arXiv.2406.16232. URL http://arxiv.org/abs/
+2406.16232. arXiv:2406.16232.
+
+for multi-objective optimization.
+
+Alex Kendall, Yarin Gal, and Roberto Cipolla. Multi-task learning using uncertainty to weigh losses for
+scene geometry and semantics. (arXiv:1705.07115), April 2018. doi: 10.48550/arXiv.1705.07115. URL
+http://arxiv.org/abs/1705.07115. arXiv:1705.07115.
+
+Zhao Chen, Vijay Badrinarayanan, Chen-Yu Lee, and Andrew Rabinovich. Gradnorm: Gradient
+normalization for adaptive loss balancing in deep multitask networks. (arXiv:1711.02257), June 2018.
+doi: 10.48550/arXiv.1711.02257. URL http://arxiv.org/abs/1711.02257. arXiv:1711.02257.
+
+Xi Lin, Hui-Ling Zhen, Zhenhua Li, Qing-Fu Zhang, and Sam Kwong. Pareto multi-task learning. In Ad-
+vances in Neural Information Processing Systems, volume 32. Curran Associates, Inc., 2019. URL https:
+//papers.nips.cc/paper_files/paper/2019/hash/685bfde03eb646c27ed565881917c71c-Abstract.html.
+
+Aviv Shamsian, Aviv Navon, Neta Glazer, Kenji Kawaguchi, Gal Chechik, and Ethan Fetaya. Auxiliary
+learning as an asymmetric bargaining game. (arXiv:2301.13501), June 2023. doi: 10.48550/arXiv.2301.
+13501. URL http://arxiv.org/abs/2301.13501. arXiv:2301.13501.
+
+Le Yu, Bowen Yu, Haiyang Yu, Fei Huang, and Yongbin Li. Language models are super mario: Absorbing
+abilities from homologous models as a free lunch. (arXiv:2311.03099), June 2024. doi: 10.48550/arXiv.
+2311.03099. URL http://arxiv.org/abs/2311.03099. arXiv:2311.03099.
+
+Guodong Du, Junlin Lee, Jing Li, Runhua Jiang, Yifei Guo, Shuyang Yu, Hanting Liu, Sim Kuan Goh,
+Ho-Kin Tang, Daojing He, and Min Zhang. Parameter competition balancing for model merging.
+(arXiv:2410.02396), October 2024. doi: 10.48550/arXiv.2410.02396. URL http://arxiv.org/abs/2410.
+02396. arXiv:2410.02396.
+
+15
+
+Daniel Marczak, Simone Magistri, Sebastian Cygert, Bartłomiej Twardowski, Andrew D. Bagdanov,
+and Joost van de Weijer. No task left behind: Isotropic model merging with common and task-
+specific subspaces.
+(arXiv:2502.04959), June 2025. doi: 10.48550/arXiv.2502.04959. URL http:
+//arxiv.org/abs/2502.04959. arXiv:2502.04959.
+
+Xisen Jin, Xiang Ren, Daniel Preotiuc-Pietro, and Pengxiang Cheng. Dataless knowledge fusion by
+merging weights of language models. (arXiv:2212.09849), May 2025. doi: 10.48550/arXiv.2212.09849.
+URL http://arxiv.org/abs/2212.09849. arXiv:2212.09849.
+
+The-Hai Nguyen, Dang Huu-Tien, Takeshi Suzuki, and Le-Minh Nguyen. Regmean++: Enhancing
+effectiveness and generalization of regression mean for model merging. (arXiv:2508.03121), August
+2025. doi: 10.48550/arXiv.2508.03121. URL http://arxiv.org/abs/2508.03121. arXiv:2508.03121.
+
+Enneng Yang, Li Shen, Zhenyi Wang, Guibing Guo, Xiaojun Chen, Xingwei Wang, and Dacheng
+Tao. Representation surgery for multi-task model merging. (arXiv:2402.02705), May 2024b. doi:
+10.48550/arXiv.2402.02705. URL http://arxiv.org/abs/2402.02705. arXiv:2402.02705.
+
+Samuel K. Ainsworth, Jonathan Hayase, and Siddhartha Srinivasa. Git re-basin: Merging models modulo
+permutation symmetries. (arXiv:2209.04836), March 2023. doi: 10.48550/arXiv.2209.04836. URL
+http://arxiv.org/abs/2209.04836. arXiv:2209.04836.
+
+Kotaro Yoshida, Yuji Naraki, Takafumi Horie, Ryosuke Yamaki, Ryotaro Shimizu, Yuki Saito, Julian
+McAuley, and Hiroki Naganuma. Mastering task arithmetic: τ jp as a key indicator for weight
+disentanglement. October 2024. URL https://openreview.net/forum?id=1VwWi6zbxs.
+
+Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. Distilling the knowledge in a neural network.
+
+(arXiv:1503.02531), March 2015. doi: 10.48550/arXiv.1503.02531. URL http://arxiv.org/abs/1503.
+02531. arXiv:1503.02531.
+
+Jing Xu, Jiazheng Li, and Jingzhao Zhang. Scalable model merging with progressive layer-wise distillation.
+(arXiv:2502.12706), May 2025. doi: 10.48550/arXiv.2502.12706. URL http://arxiv.org/abs/2502.12706.
+arXiv:2502.12706.
+
+Gintare Karolina Dziugaite and Daniel M. Roy. Computing nonvacuous generalization bounds for deep
+(stochastic) neural networks with many more parameters than training data. (arXiv:1703.11008), October
+2017. doi: 10.48550/arXiv.1703.11008. URL http://arxiv.org/abs/1703.11008. arXiv:1703.11008.
+
+Christina Baek, Zico Kolter, and Aditi Raghunathan. Why is sam robust to label noise? (arXiv:2405.03676),
+May 2024. doi: 10.48550/arXiv.2405.03676. URL http://arxiv.org/abs/2405.03676. arXiv:2405.03676.
+
+Clara Na, Sanket Vaibhav Mehta, and Emma Strubell. Train flat, then compress: Sharpness-aware
+minimization learns more compressible models. In Yoav Goldberg, Zornitsa Kozareva, and Yue Zhang,
+editors, Findings of the Association for Computational Linguistics: EMNLP 2022, page 4909–4936,
+Abu Dhabi, United Arab Emirates, December 2022. Association for Computational Linguistics. doi:
+10.18653/v1/2022.findings-emnlp.361. URL https://aclanthology.org/2022.findings-emnlp.361/.
+
+Arthur Jacot, Franck Gabriel, and Clément Hongler. Neural tangent kernel: Convergence and generaliza-
+tion in neural networks. (arXiv:1806.07572), February 2020. doi: 10.48550/arXiv.1806.07572. URL
+http://arxiv.org/abs/1806.07572. arXiv:1806.07572.
+
+Ke Wang, Nikolaos Dimitriadis, Guillermo Ortiz-Jimenez, François Fleuret, and Pascal Frossard. Localizing
+task information for improved model merging and compression. (arXiv:2405.07813), May 2024. doi:
+10.48550/arXiv.2405.07813. URL http://arxiv.org/abs/2405.07813. arXiv:2405.07813.
+
+Florent Malrieu and Denis Talay. Concentration inequalities for euler schemes. In Harald Niederreiter
+and Denis Talay, editors, Monte Carlo and Quasi-Monte Carlo Methods 2004, page 355–371, Berlin,
+Heidelberg, 2006. Springer. ISBN 9783540311867. doi: 10.1007/3-540-31186-6_21.
+
+Imre Csiszár and János Körner. Information Theory: Coding Theorems for Discrete Memoryless Systems.
+
+Cambridge University Press, USA, 2nd edition, 2015. ISBN 1107565049.
+
+16
+
+Jonathan Krause, Michael Stark, Jia Deng, and Li Fei-Fei. 3d object representations for fine-grained
+categorization. In Proceedings of the IEEE international conference on computer vision workshops,
+page 554–561, 2013.
+
+Mircea Cimpoi, Subhransu Maji, Iasonas Kokkinos, Sammy Mohamed, and Andrea Vedaldi. Describing
+textures in the wild. In Proceedings of the IEEE conference on computer vision and pattern recognition,
+page 3606–3613, 2014.
+
+Patrick Helber, Benjamin Bischke, Andreas Dengel, and Damian Borth. Eurosat: A novel dataset and
+deep learning benchmark for land use and land cover classification. IEEE Journal of Selected Topics in
+Applied Earth Observations and Remote Sensing, 12(7):2217–2226, 2019.
+
+Johannes Stallkamp, Marc Schlipsing, Jan Salmen, and Christian Igel. The german traffic sign recognition
+benchmark: a multi-class classification competition. In The 2011 international joint conference on
+neural networks, page 1453–1460. IEEE, 2011.
+
+Yann LeCun. The mnist database of handwritten digits. http://yann. lecun. com/exdb/mnist/, 1998.
+
+Gong Cheng, Junwei Han, and Xiaoqiang Lu. Remote sensing image scene classification: Benchmark and
+
+state of the art. Proceedings of the IEEE, 105(10):1865–1883, 2017.
+
+Jianxiong Xiao, Krista A Ehinger, James Hays, Antonio Torralba, and Aude Oliva. Sun database:
+Exploring a large collection of scene categories. International Journal of Computer Vision, 119(1):3–22,
+2016.
+
+Yuval Netzer, Tao Wang, Adam Coates, Alessandro Bissacco, Baolin Wu, Andrew Y Ng, et al. Reading
+digits in natural images with unsupervised feature learning. In NIPS workshop on deep learning and
+unsupervised feature learning, volume 2011, page 7. Granada, 2011.
+
+Maria-Elena Nilsback and Andrew Zisserman. Automated flower classification over a large number of
+classes. In 2008 Sixth Indian conference on computer vision, graphics & image processing, page 722–729.
+IEEE, 2008.
+
+Alex Krizhevsky, Geoffrey Hinton, et al. Learning multiple layers of features from tiny images. 2009.
+
+Bastiaan S Veeling, Jasper Linmans, Jim Winkens, Taco Cohen, and Max Welling. Rotation equivariant
+cnns for digital pathology. In International Conference on Medical image computing and computer-
+assisted intervention, page 210–218. Springer, 2018.
+
+Adam Coates, Andrew Ng, and Honglak Lee. An analysis of single-layer networks in unsupervised feature
+learning. In Proceedings of the fourteenth international conference on artificial intelligence and statistics,
+page 215–223. JMLR Workshop and Conference Proceedings, 2011.
+
+Omkar M Parkhi, Andrea Vedaldi, Andrew Zisserman, and CV Jawahar. Cats and dogs. In 2012 IEEE
+
+conference on computer vision and pattern recognition, page 3498–3505. IEEE, 2012.
+
+Ian J Goodfellow, Dumitru Erhan, Pierre Luc Carrier, Aaron Courville, Mehdi Mirza, Ben Hamner, Will
+Cukierski, Yichuan Tang, David Thaler, Dong-Hyun Lee, et al. Challenges in representation learning: A
+report on three machine learning contests. In International conference on neural information processing,
+page 117–124. Springer, 2013.
+
+Gregory Cohen, Saeed Afshar, Jonathan Tapson, and Andre Van Schaik. Emnist: Extending mnist
+to handwritten letters. In 2017 international joint conference on neural networks (IJCNN), page
+2921–2926. IEEE, 2017.
+
+Lukas Bossard, Matthieu Guillaumin, and Luc Van Gool. Food-101–mining discriminative components
+
+with random forests. In European conference on computer vision, page 446–461. Springer, 2014.
+
+Tarin Clanuwat, Mikel Bober-Irizar, Asanobu Kitamoto, Alex Lamb, Kazuaki Yamamoto, and David Ha.
+
+Deep learning for classical japanese literature. arXiv preprint arXiv:1812.01718, 2018.
+
+17
+
+Richard Socher, Alex Perelygin, Jean Wu, Jason Chuang, Christopher D Manning, Andrew Y Ng, and
+Christopher Potts. Recursive deep models for semantic compositionality over a sentiment treebank. In
+Proceedings of the 2013 conference on empirical methods in natural language processing, page 1631–1642,
+2013.
+
+Alex Wang, Amanpreet Singh, Julian Michael, Felix Hill, Omer Levy, and Samuel R. Bowman.
+
+Glue: A multi-task benchmark and analysis platform for natural
+(arXiv:1804.07461), February 2019. doi: 10.48550/arXiv.1804.07461. URL http://arxiv.org/abs/
+1804.07461. arXiv:1804.07461.
+
+language understanding.
+
+Alex Warstadt, Amanpreet Singh, and Samuel R Bowman. Neural network acceptability judgments.
+
+Transactions of the Association for Computational Linguistics, 7:625–641, 2019.
+
+Bill Dolan and Chris Brockett. Automatically constructing a corpus of sentential paraphrases. In Third
+
+international workshop on paraphrasing (IWP2005), 2005.
+
+Adina Williams, Nikita Nangia, and Samuel R Bowman. A broad-coverage challenge corpus for sentence
+
+understanding through inference. arXiv preprint arXiv:1704.05426, 2017.
+
+Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev, and Percy Liang. Squad: 100,000+ questions for
+
+machine comprehension of text. arXiv preprint arXiv:1606.05250, 2016.
+
+Anke Tang, Li Shen, Yong Luo, Han Hu, Bo Du, and Dacheng Tao. Fusionbench: A comprehensive
+
+benchmark of deep model fusion. arXiv preprint arXiv:2406.03280, 2024.
+
+18
+
+A Theoretical Definition
+
+Definition 2 (Poincaré inequality, Malrieu and Talay [2006], Haddouche et al. [2025]). A distribution Q
+satisfies a Poincaré inequality with constant cP (Q) if for all sets of functions f that are square-integrable,
+with their gradient’s norm also being square-integrable, we have
+
+Varh∼Q(f (h)) ≤ cP (Q)Eh∼Q[∥∇hf (h)∥2],
+
+(2)
+
+where Varh∼Q(f (h)) = Eh∼Q[f (h) − Eh∼Q[f (h)]]2 is the variance of f with respect to Q. We then say
+that Q is Poincaré with constant cP (Q). A gaussian distribution Q = N (µ, Σ) is Poincaré with constant
+cP (Q) = ∥Σ∥.
+Definition 3 (Quadratically Self-Bounded, Haddouche et al. [2025]). We say that Q ∈ M(H) is
+quadratically self-bounded with respect to the loss function ℓ → R+ and a constant C > 0 (namely
+QSB(ℓ, C)) if
+
+(cid:20)(cid:16)
+
+(cid:17)2(cid:21)
+
+Ez∼D
+
+Eh∼Q ℓ(h, z)
+
+≤ CLD(Q) = C Ez∼D [Eh∼Q ℓ(h, z)] .
+
+Note that this is a relaxation of boundedness as if a loss is bounded [0, C], the distribution Q is QSB(ℓ, C).
+
+B Lemmas and Theorems
+
+B.1 Proof of Lemma 1
+Proof. We have LDt(Q) = (cid:82) LDt(h) dQ(h) and, by linearity of the integral, LDt(Qmerge) =
+(cid:82) LDt(h) d(cid:0) (cid:80)T
+(cid:82) LDt(h) dQj(h) = (cid:80)T
+
+j=1 βjQj(h)(cid:1) = (cid:80)T
+
+j=1 βjLDt(Qj).
+
+j=1 βj
+
+B.2 Proof of Proposition 1
+
+Proof. Using Lemma 1, we have
+
+Lmix(Qmerge) =
+
+T
+(cid:88)
+
+i=1
+
+αi LDi(Qmerge) =
+
+T
+(cid:88)
+
+T
+(cid:88)
+
+i=1
+
+j=1
+
+αiβj LDi(Qj).
+
+Then by adding and subtracting (cid:80)T
+
+j=1 βj LDj (Qj) and rearranging, we have
+
+Lmix(Qmerge) =
+
+T
+(cid:88)
+
+T
+(cid:88)
+
+i=1
+
+j=1
+
+αiβj LDi(Qj) +
+
+(cid:104) T
+(cid:88)
+
+j=1
+
+βj LDj (Qj) −
+
+βj LDj (Qj)
+
+(cid:105)
+
+T
+(cid:88)
+
+j=1
+
+=
+
+T
+(cid:88)
+
+j=1
+
+βj LDj (Qj) +
+
+T
+(cid:88)
+
+T
+(cid:88)
+
+i=1
+
+j=1
+
+αiβj
+
+(cid:0)LDi(Qj) − LDj (Qj)(cid:1).
+
+(cid:1), a prior P over Θ, a distribution
+Theorem 4 (Theorem 6, Haddouche et al. [2025]). Let C > 0, λ ∈ (cid:0)0, 2
+D, and a sample Sm ∼ Dm. If a posterior Q is Poincaeé with constant cP (Q) (Definition 2) and ℓ is
+QSB(ℓ, C) under Q (Definition 3), then with probability at least 1 − δ over Sm,
+
+C
+
+LD(Q) ≤
+
+1
+1 − λC
+2
+
+(cid:32)
+
+(cid:98)LSm (Q) +
+
+DKL(Q∥P ) + log(cid:0) 1
+λm
+
+δ
+
+(cid:33)
+
+(cid:1)
+
++
+
+λ
+2 − λC
+
+cP (Q) Ez∼D Eh∼Q ∥∇hℓ(h, z)∥2
+2 .
+
+B.3 Proof of Theorem 1
+
+Proof. We start from Proposition 1. We have:
+
+Lmix(Qmerge) =
+
+T
+(cid:88)
+
+j=1
+
+βj LDj (Qj) +
+
+T
+(cid:88)
+
+T
+(cid:88)
+
+i=1
+
+j=1
+
+αiβj
+
+(cid:0)LDi(Qj) − LDj (Qj)(cid:1).
+
+19
+
+We now bound (cid:80)T
+
+j=1 βj LDj (Qj) term. For each t ∈ [T ], apply Theorem 4 with m = nt, λ = ηt,
+Q = Qt = N (θt, Σt), and the same prior P ; since ℓ ∈ [0, 1], QSB(ℓ, 1) holds (i.e., C = 1), and for
+Gaussian Qt, cP (Qt) = ∥Σt∥. Hence, with probability at least 1 − δt,
+
+LDt(Qt) ≤
+
+
+
+ (cid:98)LSt(Qt) +
+
+1
+1 − ηt
+2
+
+DKL(Qt∥P ) + log
+
+ηtnt
+
+(cid:16) 1
+δt
+
+(cid:17)
+
+
+
+ +
+
+ηt
+2 − ηt
+
+∥Σt∥ GDt(Qt) ,
+
+Choose δt > 0 such that (cid:80)T
+
+t=1 δt ≤ δ. By a union bound over t ∈ [T ] and substituting the above
+
+inequality into the decomposition, with probability at least 1 − δ,
+
+Lα(Qmerge) ≤
+
+
+
+βt
+
+
+
+T
+(cid:88)
+
+t=1
+
+1
+1 − ηt
+2
+
+
+
+ (cid:98)LSt(Qt) +
+
+DKL(Qt∥P ) + log
+
+ηtnt
+
+(cid:16) 1
+δt
+
+(cid:17)
+
+
+
+ +
+
+ηt
+2 − ηt
+
+
+
+∥Σt∥op GDt(Qt)
+
+
+
+T
+(cid:88)
+
+T
+(cid:88)
+
++
+
+i=1
+
+j=1
+
+αiβj
+
+(cid:0)LDi(Qj) − LDj (Qj)(cid:1).
+
+B.4 Proof of Lemma 2
+Proof. Given the convexity of ℓ and Jensen’s inequality, we have LDt(µt) = LDt(Eh∼Qt(h)) ≤
+Eh∼Qt(LDt(h)) = LDt (Qt). Fix x, y. Let ∆h = fh(x) − fµ(x) = ∇θfθ0(x)⊤(h − µ). With ℓ being
+convex, γ-smooth in scores
+
+ℓ(fµ(x) + ∆h, y) ≤ ℓ(fµ(x), y) + ⟨∇sℓ(fµ(x), y), ∆h⟩ +
+
+γ
+2
+
+∥∆h∥2
+2
+
+Now if we take expectations over (x, y) ∼ D, the linear term ⟨∇sℓ(fµ(x), y), ∆h⟩ will vanish. Now,
+(cid:1) will give the bound. The proof
+
+plugging Ex∼DEh∼Q ∥∆h∥2
+2 = Ex∼DEh∼Q∥Φ(x)⊤(h − µ)∥2
+for empirical follows the same procedure, but with the empirical observation of data.
+
+2 = tr(cid:0)ΣKD
+
+B.5 Proof of Lemma 3
+
+Proof. Based on the chain rule, we have,
+
+GD(Q) = E(x, y)∼D
+
+(cid:2)Eh∼Q ∥∇hℓ(fh(x), y) ∥2
+
+2
+
+(cid:3) = E(x, y)∼D
+
+(cid:2)Eh∼Q ∥Φ(x)⊤∇sℓ(fh(x), y) ∥2
+
+2
+
+(cid:3).
+
+We then add and subtract ∇sℓ(fµ(x), y),
+
+GD(Q) = E(x, y)∼D
+
+(cid:2)Eh∼Q ∥Φ(x)⊤(∇sℓ(fµ(x), y) + ∇sℓ(fh(x), y) − ∇sℓ(fµ(x), y)) ∥2
+
+2
+
+(cid:3).
+
+By Minkowski’s inequality,
+
+(cid:112)GD(Q) =
+
+≤
+
+(cid:16)
+
+(cid:16)
+
+E(x, y)∼DEh∼Q ∥Φ(x)⊤(∇sℓ(fµ(x), y) + ∇sℓ(fh(x), y) − ∇sℓ(fµ(x), y))∥2
+2
+
+(cid:17)1
+
+2
+
+E(x, y)∼DEh∼Q ∥Φ(x)⊤∇sℓ(fµ(x), y)∥2
+2
+
+(cid:17)1
+
+2
+
+(cid:16)
+
++
+
+E(x, y)∼DEh∼Q ∥Φ(x)⊤(∇sℓ(fh(x), y) − ∇sℓ(fµ(x), y))∥2
+2
+
+(cid:17)1
+
+2
+
+= (cid:112)GD(µ) +
+
+(cid:16)
+
+E(x, y)∼DEh∼Q ∥Φ(x)⊤(∇sℓ(fh(x), y) − ∇sℓ(fµ(x), y))∥2
+2
+
+(cid:17)1
+
+2
+
+.
+
+Now, given the convexity and γ-smoothness of ℓ with respect to scores,
+
+∥∇sℓ(fh(x), y) − ∇sℓ(fµ(x), y)∥2 ≤ γ |fh(x) − fµ(x)| = γ |Φ(x)⊤(h − µ)|.
+
+20
+
+Hence,
+
+(cid:0)E(x, y)Eh ∥Φ(x)⊤(∇sℓ(fh(x), y) − ∇sℓ(fµ(x), y))∥2
+
+2
+
+(cid:1)1
+2 ≤ γ (cid:0)Ex ∥Φ(x)∥2
+= γ (cid:0)Ex ∥Φ(x)∥2
+
+(cid:2)(Φ(x)⊤(h − µ))2(cid:3)(cid:1)1
+(cid:113)
+
+Eh
+2 Φ(x)⊤Σ Φ(x)(cid:1)1
+
+2 ≤ γ
+
+2
+
+2
+
+tr(Σ K2
+
+D).
+
+Therefore,
+
+and squaring both sides gives
+
+(cid:112)GD(Q) ≤ (cid:112)GD(µ) + γ
+
+(cid:113)
+
+tr(Σ K2
+
+D),
+
+GD(Q) ≤
+
+(cid:18)
+(cid:112)GD(µ) + γ
+
+(cid:113)
+
+(cid:19)2
+
+tr(Σ K2
+
+D)
+
+.
+
+The empirical version follows the same procedure with D → S and KD → (cid:98)KS .
+
+B.6 Lemma 6
+
+Define the deterministic heterogeneity term
+
+Hµ(α, β) :=
+
+T
+(cid:88)
+
+T
+(cid:88)
+
+i=1
+
+j=1
+
+αiβj
+
+(cid:0)LDi (µj) − LDj (µj)(cid:1) .
+
+Lemma 6. Under NTK, with loss ℓ being convex and γ-smooth in score, let Kα = (cid:80)T
+
+t=1 αtKDt,
+
+HQ(α, β) ≤ Hµ(α, β) +
+
+γ
+2
+
+T
+(cid:88)
+
+j=1
+
+βjtr (ΣjKα) .
+
+Proof. Under NTK, with loss ℓ being convex and γ-smooth in score, given Lemma 2, we have:
+
+HQ(α, β) =
+
+≤
+
+=
+
+T
+(cid:88)
+
+T
+(cid:88)
+
+i=1
+
+j=1
+
+T
+(cid:88)
+
+T
+(cid:88)
+
+i=1
+
+j=1
+
+T
+(cid:88)
+
+T
+(cid:88)
+
+i=1
+
+j=1
+
+αiβj
+
+(cid:0)LDi(Qj) − LDj (Qj)(cid:1)
+
+(cid:16)
+
+αiβj
+
+LDi(µj) +
+
+γ
+2
+
+tr (ΣjKDi) − LDj (µj)
+
+(cid:17)
+
+αiβj
+
+(cid:0)LDi (µj) − LDj (µj)(cid:1) +
+
+γ
+2
+
+T
+(cid:88)
+
+j=1
+
+(cid:32)
+
+βjtr
+
+Σj
+
+(cid:33)
+
+αiKDi
+
+T
+(cid:88)
+
+i=1
+
+= Hµ(α, β) +
+
+γ
+2
+
+T
+(cid:88)
+
+j=1
+
+βjtr (ΣjKα)
+
+B.7 Proof of Lemma 4
+
+Proof. We have:
+
+Hµ(α, β) =
+
+T
+(cid:88)
+
+T
+(cid:88)
+
+i=1
+
+j=1
+
+αiβj
+
+(cid:0)LDi (µj) − LDj (µj)(cid:1)
+
+βj
+
+(cid:32) T
+
+(cid:88)
+
+i=1
+
+αi (LDi (µj)) − LDj (µj)
+
+(cid:33)
+
+βj
+
+(cid:0)Lα (µj) − LDj (µj)(cid:1)
+
+=
+
+=
+
+T
+(cid:88)
+
+j=1
+
+T
+(cid:88)
+
+j=1
+
+21
+
+Fix θmerge and for a data distribution D, define gD(θmerge) = E(x,y)∼D∇θℓ(fθ(x), y), for every µj, using
+descent lemma, we have:
+
+LD(θmerge) + ⟨gD(θmerge), ∆j⟩ −
+
+γ
+2
+
+∆⊤
+
+j KD∆j ≤ LD(µj) ≤ LD(θmerge) + ⟨gD(θmerge), ∆j⟩ +
+
+γ
+2
+
+∆⊤
+
+j KD∆j
+
+Next, we apply the first inequality to LD = LDj
+
+and the second inequality to LD = Lα. We then have:
+
+Lα(µj) ≤ Lα(θmerge) + ⟨gα(θmerge), ∆j⟩ +
+
+LDj (µj) ≥ LDj (θmerge) + ⟨gj(θmerge), ∆j⟩ −
+
+γ
+∆⊤
+2
+γ
+2
+
+∆⊤
+
+j Kα∆j,
+
+j KDj ∆j.
+
+Subtract and we have:
+
+Hµ(α, β) =
+
+≤
+
+T
+(cid:88)
+
+j=1
+
+T
+(cid:88)
+
+j=1
+
+βj
+
+(cid:0)Lα (µj) − LDj (µj)(cid:1)
+
+βj
+
+(cid:0)Lα(θmerge) − LDj (θmerge)(cid:1) +
+
+T
+(cid:88)
+
+j=1
+
+βj⟨gα(θmerge) − gj(θmerge), ∆j⟩+
+
+γ
+2
+
+T
+(cid:88)
+
+j=1
+
+βj∆⊤
+
+j (Kα + KDj )∆j
+
+We then bound the (cid:80)T
+
+j=1 βj⟨gα(θmerge) − gj(θmerge), ∆j⟩ using Cauchy-Schwartz:
+
+T
+(cid:88)
+
+j=1
+
+βj⟨gα(θmerge) − gj(θmerge), ∆j⟩ ≤
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)
+
+T
+(cid:88)
+
+j=1
+
+βj∥gα (θmerge) − gj(θmerge) ∥2
+2
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)
+
+T
+(cid:88)
+
+j=1
+
+βj∥∆j∥2
+2
+
+We now bound the first term:
+
+T
+(cid:88)
+
+j=1
+
+βj∥gα (θmerge) − gj (θmerge) ∥2
+
+2 =
+
+T
+(cid:88)
+
+j=1
+
+βj
+
+(cid:0)∥gα (θmerge) ∥2
+
+2 − 2⟨gα (θmerge) , gj (θmerge)⟩ + ∥gj (θmerge) ∥2
+2
+
+(cid:1)
+
+= ∥gα (θmerge) ∥2
+
+2 − 2⟨gα (θmerge) , gβ (θmerge)⟩ +
+
+≤ 2∥gα (θmerge) ∥2
+
+2 + 2
+
+T
+(cid:88)
+
+j=1
+
+βj∥gj (θmerge) ∥2
+2
+
+T
+(cid:88)
+
+j=1
+
+βj∥gj (θmerge) ∥2
+2
+
+T
+(cid:88)
+
+≤ 2
+
+αi∥gi (θmerge) ∥2
+
+2 + 2
+
+i=1
+Now, given Jensen’s inequality, we have:
+
+2
+
+T
+(cid:88)
+
+i=1
+
+αi∥gi (θmerge) ∥2
+
+2 + 2
+
+T
+(cid:88)
+
+j=1
+
+βj∥gj (θmerge) ∥2
+
+2 ≤ 2
+
+
+
+
+
+T
+(cid:88)
+
+i=1
+
+T
+(cid:88)
+
+j=1
+
+βj∥gj (θmerge) ∥2
+2.
+
+αiGDi(θmerge) +
+
+
+
+βjGDj (θmerge)
+
+
+
+T
+(cid:88)
+
+j=1
+
+So we have:
+
+Hµ(α, β) =
+
+≤
+
+T
+(cid:88)
+
+j=1
+
+T
+(cid:88)
+
+j=1
+
+βj
+
+(cid:0)Lα (µj) − LDj (µj)(cid:1)
+
+βj
+
+(cid:0)Lα(θmerge) − LDj (θmerge)(cid:1) +
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:117)
+(cid:116)2
+
+
+
+
+
+T
+(cid:88)
+
+γ
+2
+
+T
+(cid:88)
+
+j=1
+
+βj∆⊤
+
+j (Kα + KDj )∆j.
+
+i=1
+
+22
+
+αiGDi(θmerge) +
+
+T
+(cid:88)
+
+j=1
+
+βjGDj (θmerge)
+
+
+
+
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)
+
+T
+(cid:88)
+
+j=1
+
+βj∥∆j∥2
+2
+
+Now, apply 6 to get the following,
+
+HQ(α, β) ≤ (Lα(θmerge) − Lβ(θmerge)) +
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:117)
+(cid:116)2
+
+
+
+
+
+T
+(cid:88)
+
+t=1
+
+αtGDt(θmerge) +
+
+
+
+βjGDj (θmerge)
+
+
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)
+
+T
+(cid:88)
+
+j=1
+
+βj∥∆j∥2
+2
+
+T
+(cid:88)
+
+j=1
+
++
+
+γ
+2
+
+T
+(cid:88)
+
+j=1
+
+βj
+
+(cid:2)∆⊤
+
+j (Kα + Kβ)∆j + tr (ΣjKα)(cid:3) .
+
+which concludes the proof.
+
+B.8 Proof of Theorem 2
+
+Proof. From Theorem 1, we have:
+
+Lα(Qmerge) ≤
+
+(cid:34)
+
+T
+(cid:88)
+
+t=1
+
+βt
+
+1
+1 − ηt
+2
+
+(cid:32)
+
+ˆLSt(Qt) +
+
+DKL(Qt∥P ) + log( 1
+δt
+ηtnt
+
+(cid:33)
+)
+
++
+
+ηt
+2 − ηt
+
+(cid:35)
+
+∥Σt∥ GDt(Qt)
+
+T
+(cid:88)
+
+T
+(cid:88)
+
++
+
+i=1
+
+j=1
+
+αiβj
+
+(cid:0)LDi(Qj) − LDj (Qj)(cid:1).
+
+Then we apply Lemma 2 to (cid:98)LSt(Qt) and Lemma 3 to GDt(Qt) for every t ∈. Then we have:
+(cid:17)
+
+T
+(cid:88)
+
+t=1
+
+(cid:34)
+
+1
+1 − ηt
+2
+
+
+ ˆLSt (µt) +
+
+γ
+2
+
+tr (ΣtKDt) +
+
+DKL (Qt∥P ) + log
+
+ηtnt
+
+(cid:16) 1
+δt
+
+
+
+
+
+Lα (Qmerge) ≤
+
+βt
+
++
+
+ηt
+2 − ηt
+
+(cid:18)
+(cid:112)GD(µt) + γ
+
+(cid:113)
+
+∥Σt∥
+
+tr (cid:0)ΣtK2
+Dt
+
+(cid:1)
+
+(cid:19)2 (cid:35)
+
++ HQ(α, β)
+
+Now, we apply Lemma 4. Then we have:
+
+Lα (Qmerge) ≤
+
+(cid:34)
+
+T
+(cid:88)
+
+t=1
+
+βt
+
+1
+1 − ηt
+2
+
+
+ ˆLSt (µt) +
+
+γ
+2
+
+tr (ΣtKDt) +
+
+DKL (Qt∥P ) + log
+
+ηtnt
+
+(cid:16) 1
+δt
+
+(cid:17)
+
+
+
+
+
+(cid:18)
+(cid:112)GD(µt) + γ
+
+(cid:113)
+
+∥Σt∥
+
+tr (cid:0)ΣtK2
+Dt
+
+(cid:1)
+
+(cid:19)2 (cid:35)
+
++ [Lα(θmerge) − Lβ(θmerge)]
+
+αtGDt(θmerge) +
+
+
+
+βjGDj (θmerge)
+
+
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)
+
+T
+(cid:88)
+
+j=1
+
+βj∥∆j∥2
+2
+
+T
+(cid:88)
+
+j=1
+
++
+
++
+
+ηt
+2 − ηt
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:117)
+(cid:116)2
+
+
+
+
+
+T
+(cid:88)
+
+t=1
+
+γ
+2
+
+T
+(cid:88)
+
+j=1
+
++
+
+βj
+
+(cid:2)∆⊤
+
+j (Kα + Kβ)∆j + tr (ΣjKα)(cid:3)
+
+23
+
+In the end, we use Lemma 2’s left inequality:
+
+Lα (θmerge) =
+
+T
+(cid:88)
+
+t=1
+
+αtLDt(θmerge) ≤
+
+T
+(cid:88)
+
+t=1
+
+αtLDt(θmerge) = Lα (Qmerge) ≤
+
+(cid:34)
+
+T
+(cid:88)
+
+t=1
+
+βt
+
+1
+1 − ηt
+2
+
+
+ ˆLSt (µt) +
+
+γ
+2
+
+tr (ΣtKDt) +
+
+DKL (Qt∥P ) + log
+
+ηtnt
+
+(cid:16) 1
+δt
+
+(cid:17)
+
+
+
+
+
+(cid:18)
+(cid:112)GD(µt) + γ
+
+(cid:113)
+
+∥Σt∥
+
+tr (cid:0)ΣtK2
+Dt
+
+(cid:1)
+
+(cid:19)2 (cid:35)
+
++ [Lα(θmerge) − Lβ(θmerge)]
+
+αtGDt(θmerge) +
+
+
+
+βjGDj (θmerge)
+
+
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)
+
+T
+(cid:88)
+
+j=1
+
+βj∥∆j∥2
+2
+
+T
+(cid:88)
+
+j=1
+
+βj
+
+(cid:2)∆⊤
+
+j (Kα + Kβ)∆j + tr (ΣjKα)(cid:3)
+
++
+
++
+
+ηt
+2 − ηt
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:117)
+(cid:116)2
+
+
+
+
+
+T
+(cid:88)
+
+t=1
+
+γ
+2
+
+T
+(cid:88)
+
+j=1
+
++
+
+which concludes the proof.
+
+B.9 Lemma 7
+
+Lemma 7. For a fixed input x, let p(· | x) and q(· | x) be two conditional probability distributions. Let
+y⋆ ∈ arg maxy p(y | x) and ˆy ∈ arg maxy q(y | x) be the optimal predictions under these distributions.
+Then, p(y⋆ | x) − p(ˆy | x) ≤ ∥p(· | x) − q(· | x)∥1.
+
+Proof. We can write the difference as p(y⋆) − p(ˆy) = (p(y⋆) − q(y⋆)) + (q(y⋆) − q(ˆy)) + (q(ˆy) − p(ˆy)). By
+definition, q(ˆy) ≥ q(y⋆), so the middle term is non-positive. The remaining two terms are bounded by
+their absolute values, the sum of which is at most (cid:80)
+
+y∈Y |p(y) − q(y)|.
+
+B.10 Lemma 8
+
+Lemma 8. For any two conditional distributions s1 and s2 over data distribution D and any classifier h,
+we have |L0−1
+
+(h)| ≤ Ex∼D[TV(s1, s2)] and |L0−1,⋆
+
+| ≤ Ex∼D[TV(s1, s2)].
+
+(h) − L0−1
+
+− L0−1,⋆
+s2
+
+s1
+
+s2
+
+s1
+
+Proof. For any fixed x and label y ∈ Y, we have |s1(y|x) − s2(y|x)| ≤ TV(s1, s2). Taking y = h(x) and
+averaging over x yields the first inequality. The second follows because of Lemma 8.
+
+B.11 Lemma 9
+
+Lemma 9 (Pinsker’s Inequality, Csiszár and Körner [2015]). For any two distributions u, v on a finite
+set, their total variation is bounded by the KL divergence: TV(u, v) ≤
+
+(cid:113) 1
+
+2 DKL(u∥v).
+
+B.12 Proof of Lemma 5
+
+Proof. For a single task, we drop the subscript t for clarity. The student’s excess risk under the true
+distribution y can be decomposed by adding and subtracting terms related to the teacher distribution p:
+(Note that L0−1,⋆
+
+= 0 by its definition)
+
+y
+
+L0−1
+y
+
+(hλ) − L0−1,⋆
+
+y
+
+= (cid:0)L0−1
+
+p
+
+(hλ) − L0−1,⋆
+
+p
+
+(cid:1) + (cid:2)(cid:0)L0−1
+
+y
+
+(hλ) − L0−1
+
+p
+
+(hλ)(cid:1) + (cid:0)L0−1,⋆
+
+p
+
+− L0−1,⋆
+y
+
+(cid:1)(cid:3) .
+
+The first component is the student-teacher fit, representing the student’s excess risk relative to the teacher.
+The second component is the teacher error, which captures the error introduced by using p as a proxy for
+
+24
+
+y. We now bound each term.
+
+L0−1
+p
+
+(hλ) − L0−1,⋆
+
+p
+
+= Ex∼D
+
+(cid:20)
+
+max
+y
+
+p(y|x) − p(hλ(x)|x)
+
+(cid:21)
+
+≤ Ex∼D [∥p(·|x) − qλ(·|x)∥1]
+(cid:105)
+(cid:104)(cid:112)2DKL(p(·|x) ∥ qλ(·|x))
+≤ Ex∼D
+≤ (cid:112)2Ex∼D [DKL(p(·|x) ∥ qλ(·|x))]
+
+(by Lemma 7)
+
+(by definition of TV and Lemma 9)
+
+(by Jensen’s inequality)
+
+(cid:0)L0−1
+
+y
+
+(hλ) − L0−1
+
+p
+
+(hλ)(cid:1) + (cid:0)L0−1,⋆
+
+(cid:1) ≤ (cid:12)
+
+p
+
+(cid:12)L0−1
+− L0−1,⋆
+y
+r
+≤ 2Ex∼D[TV(y(·|x), p(·|x))]
+(cid:104)(cid:112)2DKL(y(·|x) ∥ p(·|x))
+≤ Ex∼D
+≤ (cid:112)2Ex∼D [DKL(y(·|x) ∥ p(·|x))]
+
+(cid:105)
+
+(hλ)(cid:12)
+(hλ) − L0−1
+p
+(by Lemma 8)
+
+(cid:12) + (cid:12)
+
+(cid:12)L0−1,⋆
+p
+
+− L0−1,⋆
+r
+
+(cid:12)
+(cid:12)
+
+(by Lemma 9)
+
+(by Jensen’s inequality)
+
+Combining the two bounds yields the desired result.
+
+B.13 Proof of Theorem 3
+
+Proof. We begin with the single-task excess risk bound from Proposition 5, established for each task
+t ∈ [T ]. We take the weighted average of this inequality across all tasks using the evaluation weights
+α ∈ ∆T −1: (Note that L0−1,⋆
+
+= 0 by its definition)
+
+yt
+
+T
+(cid:88)
+
+t=1
+
+αtL0−1
+yt
+
+(hλ) ≤
+
+=
+
+T
+(cid:88)
+
+t=1
+
+T
+(cid:88)
+
+t=1
+
+(cid:18)(cid:113)
+
+αt
+
+2 Ex∼Dt DKL
+
+(cid:0)pt(·|x) ∥ qλ(·|x)(cid:1) +
+
+(cid:113)
+
+2 Ex∼Dt DKL
+
+(cid:0)yt(·|x) ∥ pt(·|x)(cid:1)
+
+(cid:19)
+
+(cid:113)
+
+αt
+
+2 Ex∼Dt DKL
+
+(cid:0)pt(·|x) ∥ qλ(·|x)(cid:1) +
+
+(cid:113)
+
+αt
+
+T
+(cid:88)
+
+t=1
+
+2 Ex∼Dt DKL
+
+(cid:0)yt(·|x) ∥ pt(·|x)(cid:1).
+
+Given Jensen’s inequality, we have:
+
+(cid:113)
+
+αt
+
+T
+(cid:88)
+
+t=1
+
+2 Ex∼Dt DKL
+
+(cid:0)pt(·|x) ∥ qλ(·|x)(cid:1) ≤
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)
+
+T
+(cid:88)
+
+t=1
+
+αt
+
+(cid:0)2 Ex∼Dt DKL
+
+(cid:0)pt(·|x) ∥ qλ(·|x)(cid:1)(cid:1)
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)2
+
+=
+
+T
+(cid:88)
+
+t=1
+
+αtEx∼DtDKL
+
+(cid:0)pt(·|x) ∥ qλ(·|x)(cid:1)
+
+and
+
+T
+(cid:88)
+
+t=1
+
+αt
+
+(cid:113)
+
+2 Ex∼Dt DKL
+
+(cid:0)yt(·|x) ∥ pt(·|x)(cid:1) ≤
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)
+
+T
+(cid:88)
+
+t=1
+
+αt
+
+(cid:0)2 Ex∼Dt DKL
+
+(cid:0)yt(·|x) ∥ pt(·|x)(cid:1)(cid:1)
+
+(cid:118)
+(cid:117)
+(cid:117)
+(cid:116)2
+
+=
+
+T
+(cid:88)
+
+t=1
+
+αtEx∼DtDKL
+
+(cid:0)yt(·|x) ∥ pt(·|x)(cid:1).
+
+Combining these two inequalities gives the final multi-task bound as stated in the theorem.
+
+C Pseduo-code of SAMerging
+
+Algorithm 1 contains the pseudo-code of SAMerging.
+
+25
+
+Algorithm 1 SAMerging: Sharpness-aware Model Merging
+
+Inputs:
+
+1:
+2:
+3:
+4:
+5:
+6:
+7:
+
+8:
+
+t=1: Set of T fine-tuned model parameters.
+t=1: Set of T unlabeled calibration datasets for each task.
+
+θ0: Pretrained model parameters.
+{θt}T
+{Bt}T
+ρ: Neighborhood size for SAM.
+η: Learning rate for optimizer.
+E: Total number of epochs.
+{αt}T
+
+t=1: Task loss weights (typically αt = 1
+
+T ).
+
+Output:
+λ = {λl
+
+t}: Layer-wise merging coefficients.
+
+Procedure:
+
+Initialize θλ ← θ0
+for each layer l do
+0 + (cid:80)T
+
+9: function ConstructMergedModel(λ, θ0, {τt}T
+10:
+11:
+θl
+λ ← θl
+12:
+end for
+13:
+return θλ
+14:
+15: end function
+
+t=1 λl
+
+tτ l
+t
+
+t=1)
+
+Ltotal ← 0
+for t = 1 to T do
+
+16: function KnowledgeDistillationLoss(θmerge, {θt}T
+17:
+18:
+19:
+20:
+21:
+22:
+23:
+24:
+25: end function
+
+pt(·|x) ← Softmax(fθt (x))
+qλ(·|x) ← Softmax(fθmerge (x))
+Ltask ← Ex∈Bt [DKL(pt(·|x) ∥ qλ(·|x))]
+Ltotal ← Ltotal + αt · Ltask
+
+end for
+return Ltotal
+
+Initialization:
+26: for t = 1 to T do
+27:
+28: end for
+29: λ ← 0
+
+τt ← θt − θ0
+
+Optimization Loop:
+30: for epoch = 1 to E do
+31:
+32:
+33:
+34:
+35:
+
+36:
+37:
+38:
+39:
+40:
+41:
+42:
+43:
+44: end for
+
+θλ ← ConstructMergedModel(λ, θ0, {τt})
+
+LKD(λ) ← KnowledgeDistillationLoss(θλ, {θt}, {Bt}, {αt})
+g(λ) ← ∇λLKD(λ)
+ϵ ← ρ g(λ)
+∥g(λ)∥2
+
+θλ+ϵ ← ConstructMergedModel(λ + ϵ, θ0, {τt})
+LKD(λ + ϵ) ← KnowledgeDistillationLoss(θλ+ϵ, {θt}, {Bt}, {αt})
+gSAM(λ) ← ∇λLKD(λ + ϵ)
+
+t=1, {Bt}T
+
+t=1, {αt}T
+
+t=1)
+
+▷ Teacher (fine-tuned model) distribution
+▷ Student (merged) distribution
+
+▷ Calculate task vectors
+
+▷ Initialize merging coefficients
+
+▷ SAM Ascent Step: Find worst-case perturbation
+
+▷ Normalize gradient to find ascent direction
+
+▷ SAM Descent Step: Update on perturbed parameters
+
+λ ← λ − η · gSAM(λ)
+
+▷ Update coefficients (e.g., via SGD or Adam)
+
+45: return λ∗
+
+▷ Return the final optimized coefficients
+
+26
+
+D Experiments Results and Ablation
+
+D.1 Full data and baseline setup
+
+D.1.1 Tasks and data
+
+We evaluate generalization across increasing interference regimes on four suites following Ilharco et al.
+[2023], Wang et al. [2024]: (i) TA-8 (8 image classification tasks: Cars [Krause et al., 2013], DTD [Cimpoi
+et al., 2014], EuroSAT [Helber et al., 2019], GTSRB [Stallkamp et al., 2011], MNIST [LeCun, 1998],
+RESISC45 [Cheng et al., 2017], SUN397 [Xiao et al., 2016], SVHN [Netzer et al., 2011]), (ii) TALL-
+14 [Wang et al., 2024] (TA-8 + six: Oxford-102 Flowers [Nilsback and Zisserman, 2008], CIFAR-100
+[Krizhevsky et al., 2009], PCAM [Veeling et al., 2018], STL-10 [Coates et al., 2011], Oxford-IIIT Pet
+[Parkhi et al., 2012], FER2013 [Goodfellow et al., 2013]), (iii) TALL-20 [Wang et al., 2024] (TALL-14 +
+six: EMNIST [Cohen et al., 2017], CIFAR-10 [Krizhevsky et al., 2009], Food-101 [Bossard et al., 2014],
+Fashion-MNIST [Xiao et al., 2016], KMNIST [Clanuwat et al., 2018], RenderedSST2 [Socher et al., 2013]),
+and (iv) GLUE [Wang et al., 2019] (7 NLP tasks: CoLA [Warstadt et al., 2019], SST-2 [Socher et al.,
+2013], MRPC [Dolan and Brockett, 2005], QQP, MNLI [Williams et al., 2017], RTE, QNLI [Rajpurkar
+et al., 2016]). Vision backbones are CLIP ViT-B/32 and ViT-L/14; for GLUE, we use GPT-2 fine-tuned
+per task to obtain task vectors, mirroring the setup in Wang et al. [2024].
+
+D.1.2 Baselines
+
+We use the following baselines for comparison:
+
+• Simple Averaging [Wortsman et al., 2022]: this method averages the fine-tuned models’ parameters
+
+to achieve the merged model.
+
+• Task Arithmetic [Ilharco et al., 2023]: This method treats the difference of each fine-tuned model as
+
+a “task vector”, then scales and adds these task vectors to make the merged model.
+
+• TIES-Merging [Yadav et al., 2023]: This method prunes small-magnitude updates, resolves sign
+conflicts across fine-tuned models, and merges only weights that agree in sign to reduce interference.
+
+• Isotropic Merging [Marczak et al., 2025]: This method derives a shared subspace from the combined
+updates (SVD), makes it isotropic, then adds and orthogonalizes each fine-tuned model’s residual
+directions before the same isotropic scaling—reducing interference while preserving specialization.
+
+• Fisher Merging [Matena and Raffel, 2022]: parameter-wise weighted averaging where each weight is
+
+scaled by its Fisher information.
+
+• PCB-Merging:
+
+• RegMean [Jin et al., 2025]: closed-form layerwise regression on unlabeled activations to match
+fine-tuned model/ensemble logits; solve linear layers by least squares, average the remaining
+parameters.
+
+• RegMean++ [Nguyen et al., 2025]: RegMean’s closed-form layerwise regression, but compute
+Gram stats from activations of the partially merged model (not each fine-tuned model), capturing
+cross-layer dependencies.
+
+• AdaMerging [Yang et al., 2023]: adaptively learns task-/layer-wise merge coefficients on unlabeled
+
+data by minimizing prediction entropy.
+
+D.2 Experiments Setup
+
+Here we explain the setup in detail for each baseline and also SAMerging. Note that all experiments are
+conducted through the Fusion Bench benchmarking Tang et al. [2024]:
+
+• SAMerging: For training SAMerging, we set the learning rate to 0.001; we use the SAM optimizer
+with Adam as its base optimizer with momentum 0.99 and weight decay 5 × 10−4; the perturbation
+radius is ρ = 0.07; batch size is 16; and weights are tied.
+
+27
+
+Method
+
+Task Arithmetic (TALL-14)
+TIES-Merging (TALL-14)
+
+Task Arithmetic (TALL-20)
+TIES-Merging (TALL-20)
+
+0.05
+
+64.0
+62.4
+
+61.1
+60.6
+
+0.07
+
+65.3
+63.9
+
+61.3
+61.6
+
+0.1
+
+66.5
+65.7
+
+60.6
+62.7
+
+0.15
+
+66.2
+67.8
+
+56.1
+63.0
+
+0.2
+
+63.3
+68.7
+
+49.6
+61.8
+
+0.3
+
+52.8
+67.6
+
+36.3
+55.5
+
+Table 6: Average accuracy on ViT-B/32 for TALL-14 (14 tasks)
+and TALL-20 (20 tasks) model pools across different scaling
+factors λ.
+
+Method
+
+Task Arithmetic
+TIES-Merging
+
+0.1
+
+64.1
+60.6
+
+0.2
+
+69.5
+67.6
+
+0.3
+
+67.5
+71.9
+
+0.4
+
+0.5
+
+0.6
+
+0.7
+
+0.8
+
+0.9
+
+1.0
+
+60.7
+73.1
+
+51.3
+71.7
+
+42.4
+68.4
+
+35.1
+64.0
+
+29.3
+59.0
+
+24.4
+53.5
+
+19.3
+48.6
+
+Table 7: Average accuracy across TA-8 tasks on ViT-B/32 for different λ
+values. Bold values indicate the best λ for each method.
+
+• MTL: We fine-tune CLIP with learning rate 1 × 10−5, weight decay 0, seed 42; batch size 128 for
+
+TALL-14 over 4,000 steps and batch size 64 for TALL-20 over 8,000 steps (LoRA disabled).
+
+• Simple Averaging: This method does not have any hyperparameters. It is an unweighted average of
+
+task models.
+
+• Task Arithmetic:
+
+– TA-8: we set the scaling factor to 0.2 according to Table 7.
+– TALL-14: we set the scaling factor to 0.1 according to Table 6.
+– TALL-20: we set the scaling factor to 0.05 according to Table 6.
+
+• TIES-Merging:
+
+– TA-8: we set the scaling factor to 0.4 according to Table 7 and top-k threshold to 20.
+– TALL-14: we set the scaling factor to 0.15 according to Table 6 and top-k threshold to 20..
+– TALL-20: we set the scaling factor to 0.15 according to Table 6 and top-k threshold to 20.
+
+• Isotropic Merging: We use ISO-CTS variant with a scaling factor 1.0; we set the common-space
+
+fraction is 0.8.
+
+• PBC-Merging: We set the parameter competition balancing ratio to 0.05.
+
+– TA-8: We set the scaling factor to 1.2 (default value).
+– TA-8: We set the scaling factor to 0.6.
+– TA-8: We set the scaling factor to 0.5.
+
+• Fisher (k=1600): We compute Fisher weights with k = 1600 examples, normalize Fisher weights,
+
+set minimal Fisher weight to 1 × 10−6, and use dataloader batch size 16 with 4 workers.
+
+• RegMean: We set k = 1600 examples and set the reduce_off_diagonal to 0.6 (default value).
+
+• RegMean++: We set k = 1600 examples and set the reduce_off_diagonal to 0.95 (default value)
+
+• AdaMerging: We train AdaMerging with learning rate 0.001 using Adam and batch size 16; weights
+
+are tied and initialized to 0.2–0.3 depending on the setting.
+
+28
+
+Method
+
+0.02
+
+0.05
+
+0.1
+
+0.2
+
+1.0
+
+Accuracy (%)
+CE Loss
+
+81.77
+0.649
+
+81.82
+0.648
+
+81.82
+0.648
+
+81.82
+0.647
+
+81.80
+0.648
+
+Table 8: Average accuracy and cross-entropy (CE)
+loss on ViT-B/32 for TA8 model pool across dif-
+ferent ρ values.
+
+D.3 Full experiments results
+
+Below are the full results of merging methods’ performance on each task for different suites and backbones.
+We report per-task accuracies (Acc., %) for TA-8, TALL-14, and TALL-20 using CLIP ViT-B/32
+and CLIP ViT-L/14. “Avg.” denotes the mean over tasks. For data-dependent methods, k indicates the
+number of unlabeled samples per task used for adaptation. See Table 9, Table 10, and Table 11. We also
+report the results for the GLUE benchmark, as shown in Table 12
+
+Backbone Method
+
+SUN397 Cars RESISC45 EuroSAT SVHN GTSRB MNIST DTD Avg.
+
+ViT-B/32 Base
+MTL
+Data-free
+Simple Averaging
+Task Arithmetic
+TIES-Merging
+Isotropic Merging
+Data-dependent
+Fisher (k=1600)
+RegMean (k=1600)
+RegMean++
+AdaMerging LW (k=1600)
+AdaMerging LW (k=16000)
+Ours
+SAMerging (k=1600)
+
+ViT-L/14 Base
+MTL
+Data-free
+Simple Averaging
+Task Arithmetic
+TIES-Merging
+Isotropic Merging
+Data-dependent
+Fisher (k=1600)
+RegMean (k=1600)
+RegMean++
+AdaMerging LW (k=1600)
+AdaMerging LW (k=16000)
+Ours
+SAMerging (k=1600)
+
+72.2
+
+76.5
+
+92.0
+
+97.2
+
+95.5
+
+97.7
+
+99.3
+
+77.5 88.5
+
+65.4
+57.0
+67.0
+71.6
+
+67.5
+67.9
+69.2
+61.5
+68.0
+
+62.4
+55.7
+64.2
+73.6
+
+68.0
+68.6
+69.7
+61.2
+71.3
+
+70.6
+64.7
+74.3
+84.1
+
+70.2
+82.5
+87.1
+71.3
+83.7
+
+75.7
+73.3
+74.5
+87.1
+
+75.4
+94.4
+95.8
+86.9
+92.0
+
+64.5
+77.9
+77.7
+73.0
+
+81.9
+90.0
+94.4
+83.9
+87.5
+
+55.0
+68.5
+69.4
+80.9
+
+54.9
+78.8
+89.8
+76.7
+93.3
+
+86.3
+96.1
+94.1
+95.3
+
+90.3
+97.7
+99.0
+97.4
+98.2
+
+50.6 66.3
+47.1 67.5
+54.0 71.9
+65.0 78.8
+
+56.0 70.5
+64.0 80.5
+68.6 84.2
+50.5 73.7
+67.2 82.6
+
+71.1
+
+75.0
+
+91.3
+
+96.6
+
+92.4
+
+96.8
+
+98.1
+
+75.6 87.1
+
+79.0
+
+89.3
+
+94.4
+
+98.3
+
+96.4
+
+98.1
+
+99.4
+
+83.7 92.3
+
+72.5
+73.3
+74.8
+79.5
+
+70.0
+75.4
+77.5
+74.5
+78.1
+
+81.5
+81.4
+83.2
+91.0
+
+79.2
+88.2
+89.6
+83.5
+90.7
+
+82.3
+84.1
+86.5
+93.9
+
+70.3
+91.0
+68.2
+86.6
+90.7
+
+88.5
+89.6
+89.7
+96.3
+
+99.0
+96.7
+97.3
+92.4
+96.1
+
+81.6
+86.6
+89.7
+91.4
+
+65.0
+95.8
+97.0
+90.9
+95.0
+
+74.0
+81.7
+85.2
+94.5
+
+58.8
+92.6
+96.3
+90.7
+97.6
+
+96.6
+97.6
+97.8
+98.6
+
+85.5
+98.5
+99.1
+98.2
+98.6
+
+61.8 79.9
+62.3 82.1
+63.9 83.8
+77.1 90.3
+
+58.4 73.3
+73.6 89.0
+81.4 88.3
+63.7 85.1
+81.3 91.0
+
+80.5
+
+92.1
+
+95.3
+
+97.4
+
+95.5
+
+98.1
+
+99.1
+
+82.7 92.6
+
+Table 9: TA-8 per-task accuracies (Acc., %). Columns list the 8 TA-8 tasks and Avg. Acc. is the mean
+over them.
+
+29
+
+Backbone Method
+
+SUN397 Cars RESISC45 EuroSAT SVHN GTSRB MNIST DTD Flowers PCAM FER2013 Pet STL10 CIFAR100 Avg.
+
+ViT-B/32 Base
+MTL
+Data-free
+Simple Averaging
+Task Arithmetic
+TIES-Merging
+Isotropic Merging
+Data-dependent
+Fisher (k=1600)
+RegMean (k=1600)
+RegMean++
+AdaMerging LW (k=1600)
+AdaMerging LW (k=16000)
+Ours
+SAMerging (k=1600)
+
+ViT-L/14 Base
+MTL
+Data-free
+Simple Averaging
+Task Arithmetic
+TIES-Merging
+Isotropic Merging
+Data-dependent
+Fisher (k=1600)
+RegMean (k=1600)
+RegMean++
+AdaMerging LW (k=1600)
+AdaMerging LW (k=16000)
+Ours
+SAMerging (k=1600)
+
+73.0
+
+72.9
+
+93.2
+
+98.5
+
+96.4
+
+97.7
+
+99.6
+
+76.7
+
+87.4
+
+86.1
+
+71.4
+
+90.9
+
+97.8
+
+86.4
+
+87.7
+
+64.8
+64.4
+62.2
+70.6
+
+65.7
+66.3
+67.3
+62.7
+66.5
+
+60.4
+59.6
+54.6
+68.8
+
+64.3
+64.6
+66.6
+58.5
+69.4
+
+67.1
+67.3
+65.3
+81.6
+
+66.9
+76.6
+81.9
+69.0
+82.4
+
+67.0
+67.8
+63.0
+85.1
+
+65.1
+90.3
+94.4
+82.2
+92.6
+
+50.7
+54.0
+65.7
+73.5
+
+61.4
+78.3
+91.3
+73.6
+85.6
+
+45.6
+50.0
+63.9
+81.2
+
+46.3
+65.7
+80.3
+62.5
+89.9
+
+76.6
+80.7
+92.6
+96.4
+
+79.1
+94.8
+98.1
+95.5
+97.8
+
+46.9
+48.0
+49.9
+61.9
+
+49.9
+56.9
+61.9
+50.3
+61.0
+
+67.4
+66.1
+58.2
+75.3
+
+70.1
+71.8
+74.9
+62.8
+73.8
+
+65.2
+69.8
+77.1
+80.7
+
+63.1
+81.8
+76.0
+75.3
+51.4
+
+51.6
+53.1
+54.9
+66.5
+
+52.0
+61.7
+64.2
+58.3
+64.7
+
+84.2
+84.2
+81.4
+88.9
+
+87.3
+87.9
+90.1
+83.6
+87.5
+
+97.2
+96.6
+94.8
+97.5
+
+97.2
+96.9
+97.5
+95.2
+96.7
+
+70.4
+69.2
+62.4
+75.3
+
+71.0
+71.9
+73.4
+65.5
+68.6
+
+65.4
+66.5
+67.6
+78.8
+
+67.1
+76.1
+79.8
+71.1
+77.7
+
+68.9
+
+72.2
+
+90.6
+
+93.8
+
+89.1
+
+94.0
+
+98.5
+
+72.4
+
+83.4
+
+77.6
+
+67.6
+
+90.2
+
+97.2
+
+76.6
+
+83.7
+
+79.2
+
+88.9
+
+94.8
+
+98.0
+
+96.1
+
+97.5
+
+99.3
+
+83.8
+
+97.5
+
+90.8
+
+72.9
+
+96.1
+
+99.4
+
+88.4
+
+91.6
+
+71.2
+71.6
+72.0
+79.1
+
+70.0
+72.9
+74.1
+73.7
+77.5
+
+79.0
+78.4
+75.6
+90.5
+
+77.4
+84.7
+86.7
+80.5
+90.0
+
+78.7
+79.3
+76.5
+94.2
+
+75.9
+87.0
+89.7
+84.6
+91.2
+
+80.4
+80.3
+69.7
+95.8
+
+97.1
+95.2
+96.7
+88.7
+96.1
+
+71.3
+72.4
+77.2
+91.1
+
+60.4
+92.9
+95.7
+84.6
+94.3
+
+64.6
+67.9
+75.1
+94.6
+
+57.7
+86.3
+91.7
+83.3
+96.2
+
+94.3
+95.3
+96.7
+98.8
+
+86.6
+98.1
+98.9
+97.5
+98.5
+
+58.7
+59.8
+57.8
+76.2
+
+58.1
+66.9
+71.1
+62.4
+77.0
+
+81.9
+81.9
+79.6
+96.9
+
+84.2
+92.0
+94.2
+83.9
+95.3
+
+74.2
+71.1
+78.2
+84.4
+
+59.8
+86.6
+80.2
+69.2
+51.3
+
+54.8
+56.1
+59.9
+71.8
+
+52.8
+66.1
+70.0
+61.7
+74.0
+
+94.6
+94.8
+94.7
+96.6
+
+94.7
+96.1
+96.1
+95.4
+95.9
+
+99.3
+99.0
+98.4
+99.6
+
+99.4
+99.3
+99.3
+98.9
+99.4
+
+82.4
+82.3
+77.7
+88.2
+
+81.0
+83.5
+85.7
+81.4
+83.3
+
+77.5
+77.9
+77.8
+89.8
+
+75.4
+86.3
+87.9
+81.9
+87.2
+
+78.5
+
+89.5
+
+94.4
+
+97.6
+
+94.5
+
+97.2
+
+98.9
+
+81.6
+
+97.2
+
+86.3
+
+72.2
+
+95.6
+
+99.1
+
+86.5
+
+90.7
+
+Table 10: TALL-14 per-task accuracies (Acc., %). Columns list the 14 TALL-14 tasks and Avg. Acc. is
+the mean over them.
+
+Backbone Method
+
+SUN397 Cars RESISC45 EuroSAT SVHN GTSRB MNIST DTD Flowers PCAM FER2013 Pet STL10 CIFAR100 CIFAR10 Food101 Fashion EMNIST KMNIST SST2 Avg.
+
+ViT-B/32 Base
+MTL
+Data-free
+Simple Averaging
+Task Arithmetic
+TIES-Merging
+Isotropic Merging
+Data-dependent
+Fisher (k=1600)
+RegMean (k=1600)
+RegMean++
+AdaMerging LW (k=1600)
+AdaMerging LW (k=16000)
+Ours
+SAMerging (k=1600)
+
+ViT-L/14 Base
+MTL
+Data-free
+Simple Averaging
+Task Arithmetic
+TIES-Merging
+Isotropic Merging
+Data-dependent
+Fisher (k=1600)
+RegMean (k=1600)
+RegMean++
+AdaMerging LW (k=1600)
+AdaMerging LW (k=16000)
+Ours
+SAMerging (k=1600)
+
+73.5
+
+74.9
+
+93.8
+
+99.0
+
+96.6
+
+97.6
+
+99.5
+
+78.1
+
+87.9
+
+87.4
+
+71.6
+
+90.9 98.0
+
+87.2
+
+97.4
+
+86.4
+
+94.3
+
+95.4
+
+97.6
+
+71.7 88.9
+
+64.2
+64.2
+65.0
+68.0
+
+65.0
+65.5
+66.2
+58.9
+66.6
+
+59.6
+59.6
+59.7
+59.2
+
+62.8
+62.4
+64.5
+47.6
+67.4
+
+64.8
+64.8
+66.3
+76.9
+
+64.4
+74.5
+79.3
+61.7
+81.9
+
+60.9
+60.9
+60.7
+81.8
+
+59.1
+85.4
+92.6
+72.4
+91.7
+
+47.3
+47.3
+52.4
+73.9
+
+53.8
+70.4
+87.3
+62.6
+80.7
+
+43.1
+43.1
+49.1
+80.8
+
+43.3
+60.0
+73.3
+54.0
+87.9
+
+71.8
+71.8
+79.3
+96.5
+
+71.5
+89.3
+93.8
+94.3
+92.7
+
+46.4
+46.4
+48.4
+58.5
+
+48.3
+54.3
+57.7
+44.8
+60.3
+
+66.5
+66.5
+66.5
+72.7
+
+68.6
+70.1
+72.4
+55.9
+73.3
+
+63.9
+63.9
+66.7
+83.5
+
+62.1
+81.4
+73.6
+70.5
+52.2
+
+50.2
+50.2
+51.7
+64.6
+
+50.1
+60.1
+63.4
+54.4
+64.9
+
+84.1 97.0
+84.1 97.0
+84.1 97.0
+86.3 96.9
+
+86.2 97.1
+86.2 96.6
+88.4 97.1
+79.4 93.7
+85.8 96.9
+
+69.8
+69.8
+70.4
+73.9
+
+70.4
+70.9
+72.5
+62.5
+69.6
+
+92.7
+92.7
+93.3
+95.0
+
+93.7
+94.1
+94.9
+90.6
+91.2
+
+79.7
+79.7
+79.5
+75.9
+
+80.4
+80.9
+83.1
+64.4
+78.3
+
+71.3
+71.3
+72.4
+83.2
+
+70.8
+77.9
+82.7
+75.5
+70.8
+
+15.0
+15.0
+17.3
+35.3
+
+16.8
+20.3
+28.7
+18.8
+15.8
+
+11.4
+11.4
+12.2
+37.2
+
+13.1
+31.8
+40.4
+13.5
+10.0
+
+61.8 61.1
+61.8 61.1
+61.9 62.7
+69.8 73.5
+
+67.4 62.2
+67.5 70.0
+67.1 74.0
+54.5 61.5
+50.0 69.4
+
+66.1
+
+67.8
+
+86.6
+
+94.7
+
+81.8
+
+90.1
+
+95.2
+
+68.6
+
+78.9
+
+72.2
+
+63.7
+
+89.2 96.0
+
+71.2
+
+92.0
+
+78.8
+
+87.8
+
+81.2
+
+88.8
+
+71.1 81.1
+
+79.2
+
+89.2
+
+95.1
+
+98.2
+
+96.1
+
+97.7
+
+99.3
+
+82.9
+
+98.0
+
+90.7
+
+72.7
+
+95.7 99.5
+
+87.9
+
+98.5
+
+92.3
+
+92.1
+
+93.0
+
+91.2
+
+85.7 91.8
+
+70.7
+70.7
+71.7
+78.7
+
+70.0
+71.7
+73.1
+71.8
+76.7
+
+77.7
+77.7
+77.9
+87.6
+
+77.2
+82.6
+85.3
+73.3
+89.5
+
+76.4
+76.4
+78.1
+93.7
+
+76.1
+84.6
+88.2
+76.1
+89.3
+
+75.3
+75.3
+75.8
+94.6
+
+96.9
+94.1
+96.3
+71.1
+96.1
+
+69.5
+69.5
+73.8
+90.4
+
+61.3
+89.0
+94.5
+76.0
+91.9
+
+62.1
+62.1
+66.6
+94.2
+
+57.7
+80.0
+88.2
+72.6
+95.4
+
+93.7
+93.7
+95.4
+98.7
+
+87.5
+97.1
+98.0
+97.0
+98.2
+
+57.7
+57.7
+59.1
+75.1
+
+58.1
+64.1
+68.2
+57.4
+74.3
+
+80.8
+80.8
+81.4
+97.0
+
+83.8
+90.0
+92.1
+78.9
+94.2
+
+73.6
+73.6
+72.4
+85.4
+
+60.1
+84.6
+80.8
+68.8
+51.6
+
+52.7
+52.7
+55.2
+70.9
+
+52.1
+63.1
+68.4
+59.3
+69.8
+
+94.2 99.2
+94.2 99.2
+94.7 99.1
+96.5 99.5
+
+94.6 99.4
+95.6 99.3
+96.2 99.2
+94.5 98.1
+95.6 99.2
+
+81.7
+81.7
+82.1
+87.7
+
+81.0
+82.5
+84.3
+76.7
+82.7
+
+97.0
+97.0
+97.4
+98.5
+
+96.9
+97.6
+98.2
+96.2
+96.4
+
+90.5
+90.5
+90.5
+92.4
+
+89.9
+91.5
+91.8
+83.4
+90.1
+
+77.4
+77.4
+80.8
+90.7
+
+74.7
+86.9
+88.9
+81.5
+86.0
+
+16.1
+16.1
+18.4
+46.2
+
+15.4
+32.9
+45.4
+18.3
+12.8
+
+10.4
+10.4
+10.8
+40.8
+
+10.1
+19.9
+42.8
+11.7
+10.0
+
+66.1 71.1
+66.1 71.1
+65.2 72.3
+78.5 84.8
+
+64.7 70.4
+68.3 78.8
+70.3 82.5
+66.4 71.5
+79.7 79.0
+
+77.5
+
+88.6
+
+93.9
+
+96.9
+
+92.8
+
+96.4
+
+97.5
+
+79.9
+
+96.7
+
+84.8
+
+71.8
+
+95.7 99.0
+
+84.5
+
+97.0
+
+91.1
+
+90.2
+
+87.0
+
+92.9
+
+83.6 89.9
+
+Table 11: TALL-20 per-task accuracies (Acc., %). Columns list the 20 TALL-20 tasks and Avg. Acc. is
+the mean over them.
+
+Backbone
+
+Method
+
+CoLA
+
+MNLI
+
+MRPC
+
+QNLI
+
+QQP
+
+RTE
+
+SST-2
+
+Avg.
+
+GPT-2
+
+Reference Results
+Fine-tuned (STL)
+Model Merging
+Simple Average
+Task Arithmetic (λ=0.5)
+TIES-Merging (λ=0.6)
+Fisher Merging
+RegMean
+AdaMerging
+Ours
+SAMerging
+
+76.8
+
+55.0
+68.7
+68.4
+54.8
+61.7
+67.8
+
+68.4
+
+82.1
+
+55.1
+68.6
+71.4
+58.0
+70.4
+59.2
+
+75.1
+
+80.4
+
+51.0
+69.6
+68.4
+39.5
+65.4
+70.6
+
+73.5
+
+88.3
+
+57.6
+70.5
+69.6
+63.3
+69.7
+63.4
+
+80.7
+
+89.6
+
+76.7
+81.8
+82.4
+81.5
+78.8
+80.6
+
+78.3
+
+65.3
+
+44.8
+47.3
+47.7
+49.1
+56.0
+47.3
+
+57.8
+
+91.2
+
+52.5
+83.6
+81.8
+64.7
+79.7
+74.0
+
+86.9
+
+82.0
+
+56.1
+70.0
+70.0
+58.7
+68.8
+68.8
+
+74.9
+
+Table 12: Multi-task model merging methods using GPT-2 models on the GLUE benchmark.
+
+30
+
+E Visualization
+
+Here we plot the loss landscape around the merged model on different pairs of tasks and benchmarks.
+
+Figure 5: Loss surface for MNIST and DTD on TA-8.
+
+Figure 6: Loss surface for MNIST and DTD on TALL-14.
+
+Figure 7: Loss surface for MNIST and DTD on TALL-20.
+
+Figure 8: EuroSAT vs SUN397 (TA-8) loss landscape.
+
+31
+
+
