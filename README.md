@@ -1,10 +1,9 @@
 # Local RAG Pipeline for Technical Documentation
-
-<div align="center">
-  <img src="assets/architecture_diagram.png" alt="RAG Architecture Schema" width="100%" style="border-radius: 10px; border: 1px solid #e1e4e8;">
-</div>
-<br>
-
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-Deep%20Learning-orange?style=for-the-badge&logo=pytorch)
+![HuggingFace](https://img.shields.io/badge/HuggingFace-Transformers-yellow?style=for-the-badge&logo=huggingface)
+![FAISS](https://img.shields.io/badge/FAISS-Vector%20Search-green?style=for-the-badge)
+![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
 
 
 ---
@@ -31,6 +30,12 @@ The pipeline follows a strict modular flow:
 4.  **Embedding:** Dense vector generation using **BAAI/bge-small-en-v1.5**.
 5.  **Vector Store:** High-performance similarity search with **FAISS**.
 6.  **Generation:** Context-aware inference using **Ollama** (Mistral 7B).
+
+   <div align="center">
+  <img src="assets/architecture_diagram.png" alt="RAG Architecture Schema" width="100%" style="border-radius: 10px; border: 1px solid #e1e4e8;">
+</div>
+<br>
+
 
 ---
 
